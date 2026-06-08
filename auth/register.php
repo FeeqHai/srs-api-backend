@@ -3,50 +3,48 @@ header('Content-Type: application/json');
 require_once '../config/db_connect.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    echo json_encode(["status" => "error", "message" => "Invalid request method."]);
+    echo json_encode(["status" => "error", "message" => "Sistem menolak request ini."]);
     exit();
 }
 
-// 1. Intercept the client-generated UUID
 $id = trim($_POST['id'] ?? '');
 $full_name = trim($_POST['full_name'] ?? '');
+$ic_number = trim($_POST['ic_number'] ?? '');
+$phone_number = trim($_POST['phone_number'] ?? '');
 $email = trim($_POST['email'] ?? '');
 $password = trim($_POST['password'] ?? '');
+$district_zone = trim($_POST['district_zone'] ?? '');
 
-if (empty($id) || empty($full_name) || empty($email) || empty($password)) {
-    echo json_encode(["status" => "error", "message" => "All fields (including ID) are required."]);
+// Strict Validation
+if (empty($id) || empty($full_name) || empty($ic_number) || empty($phone_number) || empty($email) || empty($password) || empty($district_zone)) {
+    echo json_encode(["status" => "error", "message" => "Borang tidak lengkap. Sila isi semua butiran."]);
     exit();
 }
 
-// 2. Data Integrity Check: Prevent Duplicate Emails
-$check_query = "SELECT id FROM users WHERE email = ?";
-$check_stmt = $conn->prepare($check_query);
-$check_stmt->bind_param("s", $email);
-$check_stmt->execute();
-$check_result = $check_stmt->get_result();
-
-if ($check_result->num_rows > 0) {
-    echo json_encode(["status" => "error", "message" => "Email already registered."]);
-    $check_stmt->close();
-    $conn->close();
-    exit();
-}
-$check_stmt->close();
-
-// 3. Cryptographic Generation
-// The UUID polyfill is removed. The client's UUID is utilized.
+// Security: Hash the password before storage
 $password_hash = password_hash($password, PASSWORD_BCRYPT);
-$role = 'Patroller'; // Default role assignment
+$default_role = 'peronda';
+$default_status = 'pending';
 
-// 4. Database Insertion
-$query = "INSERT INTO users (id, full_name, email, password_hash, role) VALUES (?, ?, ?, ?, ?)";
+$query = "INSERT INTO users (id, full_name, ic_number, phone_number, email, password_hash, district_zone, role, account_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
 $stmt = $conn->prepare($query);
-$stmt->bind_param("sssss", $id, $full_name, $email, $password_hash, $role);
+
+if (!$stmt) {
+    echo json_encode(["status" => "error", "message" => "Ralat pelayan: " . $conn->error]);
+    exit();
+}
+
+$stmt->bind_param("sssssssss", $id, $full_name, $ic_number, $phone_number, $email, $password_hash, $district_zone, $default_role, $default_status);
 
 if ($stmt->execute()) {
-    echo json_encode(["status" => "success", "message" => "Registration successful."]);
+    echo json_encode(["status" => "success", "message" => "Pendaftaran berjaya. Akaun sedang menunggu pengesahan Ketua KRT."]);
 } else {
-    echo json_encode(["status" => "error", "message" => "Database insertion failed."]);
+    // Catch duplicate IC or Email errors
+    if ($conn->errno === 1062) {
+        echo json_encode(["status" => "error", "message" => "No. Kad Pengenalan atau E-mel telah didaftarkan dalam sistem."]);
+    } else {
+        echo json_encode(["status" => "error", "message" => "Ralat pangkalan data."]);
+    }
 }
 
 $stmt->close();
