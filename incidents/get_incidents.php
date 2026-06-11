@@ -7,8 +7,18 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
     exit();
 }
 
-$query = "SELECT i.*, u.full_name FROM incidents i JOIN users u ON i.user_id = u.id ORDER BY i.created_at DESC";
-$result = $conn->query($query);
+$user_id = $_GET['user_id'] ?? null;
+
+if ($user_id) {
+    $query = "SELECT i.*, u.full_name FROM incidents i JOIN users u ON i.user_id = u.id WHERE i.user_id = ? ORDER BY i.created_at DESC";
+    $stmt = $conn->prepare($query);
+    $stmt->bind_param("s", $user_id);
+    $stmt->execute();
+    $result = $stmt->get_result();
+} else {
+    $query = "SELECT i.*, u.full_name FROM incidents i JOIN users u ON i.user_id = u.id ORDER BY i.created_at DESC";
+    $result = $conn->query($query);
+}
 
 $incidents = [];
 if ($result && $result->num_rows > 0) {

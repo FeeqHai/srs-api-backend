@@ -23,31 +23,39 @@ if (empty($id) || empty($reported_by) || empty($title) || empty($description) ||
 }
 
 // 3. Binary Image Handling
-if (!isset($_FILES['image']) || $_FILES['image']['error'] !== UPLOAD_ERR_OK) {
-    echo json_encode(["status" => "error", "message" => "Ralat pelayan: Gambar bukti gagal diterima."]);
-    exit();
-}
-
-// Define storage architecture
+$uploaded_urls = [];
+$host = $_SERVER['HTTP_HOST'];
 $upload_dir = '../uploads/incidents/';
-// Ensure the directory exists
 if (!is_dir($upload_dir)) {
     mkdir($upload_dir, 0777, true);
 }
 
-// Generate secure filename to prevent overwriting
-$file_extension = pathinfo($_FILES['image']['name'], PATHINFO_EXTENSION);
-$secure_filename = $id . '_' . time() . '.' . $file_extension;
-$target_filepath = $upload_dir . $secure_filename;
-
-// 4. Move Binary to Storage
-if (!move_uploaded_file($_FILES['image']['tmp_name'], $target_filepath)) {
-    echo json_encode(["status" => "error", "message" => "Ralat sistem: Gagal menyimpan fail gambar."]);
-    exit();
+$files_to_process = [];
+if (isset($_FILES['images'])) {
+    $file_count = count($_FILES['images']['name']);
+    for ($i = 0; $i < $file_count; $i++) {
+        if ($_FILES['images']['error'][$i] === UPLOAD_ERR_OK) {
+            $files_to_process[] = [
+                'name' => $_FILES['images']['name'][$i],
+                'tmp_name' => $_FILES['images']['tmp_name'][$i],
+            ];
+        }
+    }
+} elseif (isset($_FILES['image']) && $_FILES['image']['error'] === UPLOAD_ERR_OK) {
+    $files_to_process[] = $_FILES['image'];
 }
 
-// Generate the public URL to save in the database (Adjust IP to your local XAMPP IP)
-$public_image_url = "http://192.168.1.109/srs_api/uploads/incidents/" . $secure_filename;
+foreach ($files_to_process as $index => $file) {
+    $file_extension = pathinfo($file['name'], PATHINFO_EXTENSION);
+    $secure_filename = $id . '_' . time() . '_' . $index . '.' . $file_extension;
+    $target_filepath = $upload_dir . $secure_filename;
+    
+    if (move_uploaded_file($file['tmp_name'], $target_filepath)) {
+        $uploaded_urls[] = "http://$host/srs_api/uploads/incidents/" . $secure_filename;
+    }
+}
+
+$public_image_url = empty($uploaded_urls) ? null : json_encode($uploaded_urls);
 
 // 5. Database Insertion
 // NOTE: Verify your table is named 'incidents' and contains these exact columns

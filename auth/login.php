@@ -15,7 +15,7 @@ if (empty($email) || empty($password)) {
     exit();
 }
 
-$query = "SELECT id, full_name, password_hash, role FROM users WHERE email = ?";
+$query = "SELECT id, full_name, password_hash, role, account_status FROM users WHERE email = ?";
 $stmt = $conn->prepare($query);
 $stmt->bind_param("s", $email);
 $stmt->execute();
@@ -23,6 +23,15 @@ $result = $stmt->get_result();
 
 if ($result->num_rows === 1) {
     $user = $result->fetch_assoc();
+    
+    // Check account status before verifying password
+    if ($user['account_status'] === 'pending') {
+        echo json_encode(["status" => "error", "message" => "Akaun sedang menunggu pengesahan Ketua KRT."]);
+        exit();
+    } else if ($user['account_status'] === 'inactive') {
+        echo json_encode(["status" => "error", "message" => "Akaun telah dinyahaktifkan."]);
+        exit();
+    }
     
     // The bcrypt validation mechanism
     if (password_verify($password, $user['password_hash'])) {
