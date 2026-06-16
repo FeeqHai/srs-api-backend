@@ -11,6 +11,7 @@ $offset = ($page - 1) * $limit;
 
 $user_id = $_GET['user_id'] ?? null;
 $requester_id = $_GET['requester_id'] ?? null;
+$category_filter = $_GET['category'] ?? null;
 
 // Enforce row-level security
 if ($requester_id) {
@@ -30,24 +31,53 @@ if ($requester_id) {
     }
 }
 
+$where_clauses = [];
+$params = [];
+$types = "";
+
 if ($user_id) {
-    $query = "SELECT i.*, u.full_name, u.district_zone 
-              FROM incidents i 
-              JOIN users u ON i.user_id = u.id 
-              WHERE i.user_id = ?
-              ORDER BY i.created_at DESC 
-              LIMIT ? OFFSET ?";
-    $stmt = $conn->prepare($query);
-    $stmt->bind_param("sii", $user_id, $limit, $offset);
-} else {
-    $query = "SELECT i.*, u.full_name, u.district_zone 
-              FROM incidents i 
-              JOIN users u ON i.user_id = u.id 
-              ORDER BY i.created_at DESC 
-              LIMIT ? OFFSET ?";
-    $stmt = $conn->prepare($query);
-    $stmt->bind_param("ii", $limit, $offset);
+    $where_clauses[] = "i.user_id = ?";
+    $params[] = $user_id;
+    $types .= "s";
 }
+
+$start_date = $_GET['start_date'] ?? null;
+$end_date = $_GET['end_date'] ?? null;
+
+if ($category_filter && $category_filter !== 'Semua') {
+    // Exact match or prefix match (e.g., "Jenayah Kekerasan" should match "Jenayah Kekerasan - Pembunuhan")
+    // Use LIKE with % to allow matching the parent category
+    $where_clauses[] = "i.category LIKE ?";
+    $params[] = $category_filter . "%";
+    $types .= "s";
+}
+
+if ($start_date && $end_date) {
+    $where_clauses[] = "DATE(i.created_at) BETWEEN ? AND ?";
+    $params[] = $start_date;
+    $params[] = $end_date;
+    $types .= "ss";
+}
+
+$where_sql = "WHERE i.category != 'Kecemasan'";
+if (count($where_clauses) > 0) {
+    $where_sql .= " AND " . implode(" AND ", $where_clauses);
+}
+
+$query = "SELECT i.*, u.full_name, u.district_zone 
+          FROM incidents i 
+          JOIN users u ON i.user_id = u.id 
+          $where_sql
+          ORDER BY i.created_at DESC 
+          LIMIT ? OFFSET ?";
+
+$stmt = $conn->prepare($query);
+$params[] = $limit;
+$params[] = $offset;
+$types .= "ii";
+
+// Call bind_param dynamically
+$stmt->bind_param($types, ...$params);
 
 if (!$stmt) {
     echo json_encode(["status" => "error", "message" => "Server error: " . $conn->error]);

@@ -15,6 +15,8 @@ $description = trim($_POST['description'] ?? '');
 $category = trim($_POST['category'] ?? '');
 $latitude = trim($_POST['latitude'] ?? '');
 $longitude = trim($_POST['longitude'] ?? '');
+$location_name = trim($_POST['location_name'] ?? '');
+$reported_to = trim($_POST['reported_to'] ?? '');
 
 // 2. Payload Validation
 if (empty($id) || empty($reported_by) || empty($title) || empty($description) || empty($category) || empty($latitude) || empty($longitude)) {
@@ -59,7 +61,7 @@ $public_image_url = empty($uploaded_urls) ? null : json_encode($uploaded_urls);
 
 // 5. Database Insertion
 // NOTE: Verify your table is named 'incidents' and contains these exact columns
-$query = "INSERT INTO incidents (id, user_id, title, description, category, latitude, longitude, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
+$query = "INSERT INTO incidents (id, user_id, title, description, category, latitude, longitude, image_url, location_name, reported_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 $stmt = $conn->prepare($query);
 
 if (!$stmt) {
@@ -67,8 +69,8 @@ if (!$stmt) {
     exit();
 }
 
-// Bind variables (8 strings = "ssssssss")
-$stmt->bind_param("ssssssss", $id, $reported_by, $title, $description, $category, $latitude, $longitude, $public_image_url);
+// Bind variables (10 strings = "ssssssssss")
+$stmt->bind_param("ssssssssss", $id, $reported_by, $title, $description, $category, $latitude, $longitude, $public_image_url, $location_name, $reported_to);
 
 // 6. Final Evaluation
 if ($stmt->execute()) {
