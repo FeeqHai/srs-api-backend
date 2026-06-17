@@ -1,10 +1,11 @@
 <?php
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Content-Type: application/json; charset=UTF-8");
 
 require_once '../config/db_connect.php';
+require_once '../config/jwt_utils.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -13,22 +14,44 @@ if ($method === 'OPTIONS') {
     exit();
 }
 
+if ($method !== 'POST') {
+    http_response_code(405);
+    echo json_encode(["status" => "error", "message" => "Method not allowed"]);
+    exit();
+}
+
+// Enforce JWT check
+$token = get_bearer_token();
+if (!$token) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
+    exit();
+}
+$decoded = verify_jwt($token);
+if (!$decoded) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
+    exit();
+}
+
+$jwt_user_id = $decoded['user_id'];
+
 try {
-    if ($method === 'POST') {
-        $json = file_get_contents('php://input');
-        $data = json_decode($json, true);
-        if ($data) {
-            $_POST = array_merge($_POST, $data);
-        }
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+    if ($data) {
+        $_POST = array_merge($_POST, $data);
+    }
 
-        $user_id = trim($_POST['user_id'] ?? '');
-        $lat = (float)($_POST['latitude'] ?? 0);
-        $lon = (float)($_POST['longitude'] ?? 0);
+    $user_id = $jwt_user_id; // Extract from JWT
+    $lat = (float)($_POST['latitude'] ?? 0);
+    $lon = (float)($_POST['longitude'] ?? 0);
 
-        if (empty($user_id)) {
-            echo json_encode(["status" => "error", "message" => "User ID is required."]);
-            exit();
-        }
+    if (empty($user_id)) {
+        http_response_code(400);
+        echo json_encode(["status" => "error", "message" => "User ID is required."]);
+        exit();
+    }
 
         // 1. Find the active attendance record for this user (where clock_out_time is null)
         $find_query = "SELECT id FROM attendance WHERE user_id = ? AND clock_out_time IS NULL ORDER BY clock_in_time DESC LIMIT 1";
@@ -64,12 +87,8 @@ try {
             echo json_encode(["status" => "error", "message" => "Gagal menamatkan syif."]);
         }
         $update_stmt->close();
-    } else {
-        http_response_code(405);
-        echo json_encode(['status' => 'error', 'message' => 'Method not allowed']);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
     }
-} catch(PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
-}
 ?>

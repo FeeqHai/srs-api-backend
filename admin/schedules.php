@@ -1,15 +1,30 @@
 <?php
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Content-Type: application/json; charset=UTF-8");
 
 require_once '../config/db_connect.php';
+require_once '../config/jwt_utils.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
 if ($method === 'OPTIONS') {
     http_response_code(200);
+    exit();
+}
+
+// Enforce JWT check
+$token = get_bearer_token();
+if (!$token) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
+    exit();
+}
+$decoded = verify_jwt($token);
+if (!$decoded) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
     exit();
 }
 
@@ -36,9 +51,16 @@ try {
         $result = $stmt->get_result();
         $schedules = $result->fetch_all(MYSQLI_ASSOC);
         
-        echo json_encode(['success' => true, 'data' => $schedules]);
+        echo json_encode(['status' => 'success', 'data' => $schedules]);
     } 
     elseif ($method === 'POST') {
+        // Support JSON POST body (Flutter often sends JSON)
+        $json = file_get_contents('php://input');
+        $data = json_decode($json, true);
+        if ($data) {
+            $_POST = array_merge($_POST, $data);
+        }
+
         $action = $_POST['action'] ?? 'create_schedule';
 
         if ($action === 'create_schedule') {
@@ -48,7 +70,8 @@ try {
             $end_time = $_POST['end_time'] ?? '';
 
             if (empty($squad_id) || empty($shift_date) || empty($start_time) || empty($end_time)) {
-                echo json_encode(['success' => false, 'message' => 'All fields are required']);
+                http_response_code(400);
+                echo json_encode(['status' => 'error', 'message' => 'All fields are required']);
                 exit();
             }
 
@@ -62,13 +85,14 @@ try {
             $stmt->bind_param('sssss', $id, $squad_id, $shift_date, $start_time, $end_time);
             $stmt->execute();
 
-            echo json_encode(['success' => true, 'message' => 'Schedule created successfully', 'schedule_id' => $id]);
+            echo json_encode(['status' => 'success', 'message' => 'Schedule created successfully', 'schedule_id' => $id]);
         }
         elseif ($action === 'delete_schedule') {
             $schedule_id = $_POST['schedule_id'] ?? '';
 
             if (empty($schedule_id)) {
-                echo json_encode(['success' => false, 'message' => 'Schedule ID required']);
+                http_response_code(400);
+                echo json_encode(['status' => 'error', 'message' => 'Schedule ID required']);
                 exit();
             }
 
@@ -76,14 +100,15 @@ try {
             $stmt->bind_param('s', $schedule_id);
             $stmt->execute();
             
-            echo json_encode(['success' => true, 'message' => 'Schedule deleted']);
+            echo json_encode(['status' => 'success', 'message' => 'Schedule deleted']);
         }
         else {
-            echo json_encode(['success' => false, 'message' => 'Invalid action']);
+            http_response_code(400);
+            echo json_encode(['status' => 'error', 'message' => 'Invalid action']);
         }
     }
 } catch(Exception $e) {
     http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Database error: ' . $e->getMessage()]);
+    echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
 }
 ?>

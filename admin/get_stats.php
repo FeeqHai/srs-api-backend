@@ -1,13 +1,34 @@
 <?php
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: GET, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Content-Type: application/json; charset=UTF-8");
 
 require_once '../config/db_connect.php';
+require_once '../config/jwt_utils.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit(0);
+}
+
+if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
+    http_response_code(405);
+    echo json_encode(["status" => "error", "message" => "Method not allowed"]);
+    exit();
+}
+
+// Enforce JWT check
+$token = get_bearer_token();
+if (!$token) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
+    exit();
+}
+$decoded = verify_jwt($token);
+if (!$decoded) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
+    exit();
 }
 
 try {
@@ -24,7 +45,7 @@ try {
     $weekly_incidents = $incident_res->fetch_assoc()['count'];
 
     echo json_encode([
-        "success" => true,
+        "status" => "success",
         "data" => [
             "total_patrollers" => (int)$total_patrollers,
             "active_shifts" => (int)$active_shifts,
@@ -33,6 +54,6 @@ try {
     ]);
 } catch (Exception $e) {
     http_response_code(500);
-    echo json_encode(["success" => false, "message" => $e->getMessage()]);
+    echo json_encode(["status" => "error", "message" => $e->getMessage()]);
 }
 ?>

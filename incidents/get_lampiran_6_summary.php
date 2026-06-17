@@ -1,12 +1,32 @@
 <?php
 header("Access-Control-Allow-Origin: *");
 header("Content-Type: application/json; charset=UTF-8");
-header("Access-Control-Allow-Methods: GET");
+header("Access-Control-Allow-Methods: GET, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 require_once '../config/db_connect.php';
+require_once '../config/jwt_utils.php';
 
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
+
+$token = get_bearer_token();
+if (!$token) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
+    exit();
+}
+$decoded = verify_jwt($token);
+if (!$decoded) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
+    exit();
+}
+
+$user_id = $decoded['user_id'];
 $month_offset = isset($_GET['month_offset']) ? intval($_GET['month_offset']) : 0;
-$user_id = isset($_GET['user_id']) ? $_GET['user_id'] : '';
 $level = isset($_GET['level']) ? $_GET['level'] : 'daerah'; // default to daerah
 
 $target_timestamp = strtotime("-{$month_offset} months");
@@ -106,7 +126,7 @@ $query = "
 $stmt = $conn->prepare($query);
 if (!$stmt) {
     http_response_code(500);
-    echo json_encode(["success" => false, "message" => "Database error: " . $conn->error]);
+    echo json_encode(["status" => "error", "message" => "Database error: " . $conn->error]);
     exit();
 }
 
@@ -170,7 +190,7 @@ $month_names_my = ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai",
 $month_str = $month_names_my[(int)$target_month - 1];
 
 echo json_encode([
-    "success" => true,
+    "status" => "success",
     "month_label" => $month_str,
     "year_label" => $target_year,
     "metadata" => [

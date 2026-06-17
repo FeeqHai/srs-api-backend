@@ -1,10 +1,11 @@
 <?php
 header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
-header("Access-Control-Allow-Headers: Content-Type");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Content-Type: application/json; charset=UTF-8");
 
 require_once '../config/db_connect.php';
+require_once '../config/jwt_utils.php';
 
 $method = $_SERVER['REQUEST_METHOD'];
 
@@ -13,13 +14,32 @@ if ($method === 'OPTIONS') {
     exit();
 }
 
+if ($method !== 'POST') {
+    http_response_code(405);
+    echo json_encode(["status" => "error", "message" => "Method not allowed"]);
+    exit();
+}
+
+// Enforce JWT check
+$token = get_bearer_token();
+if (!$token) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
+    exit();
+}
+$decoded_token = verify_jwt($token);
+if (!$decoded_token) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
+    exit();
+}
+
 try {
-    if ($method === 'POST') {
-        $json = file_get_contents('php://input');
-        $data = json_decode($json, true);
-        if ($data) {
-            $_POST = array_merge($_POST, $data);
-        }
+    $json = file_get_contents('php://input');
+    $data = json_decode($json, true);
+    if ($data) {
+        $_POST = array_merge($_POST, $data);
+    }
 
         $attendance_id = trim($_POST['attendance_id'] ?? '');
         $equipment = $_POST['equipment'] ?? [];
@@ -55,12 +75,8 @@ try {
         }
 
         echo json_encode(["status" => "success", "message" => "Equipment logged successfully."]);
-    } else {
-        http_response_code(405);
-        echo json_encode(['status' => 'error', 'message' => 'Method not allowed']);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
     }
-} catch(PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['status' => 'error', 'message' => 'Database error: ' . $e->getMessage()]);
-}
 ?>

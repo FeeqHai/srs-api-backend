@@ -1,11 +1,38 @@
 <?php
 header('Content-Type: application/json');
+header("Access-Control-Allow-Origin: *");
+header("Access-Control-Allow-Methods: POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type, Authorization");
+
 require_once '../config/db_connect.php';
+require_once '../config/jwt_utils.php';
+
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
+    exit();
+}
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
     echo json_encode(["status" => "error", "message" => "Invalid request method."]);
     exit();
 }
+
+// Enforce JWT check
+$token = get_bearer_token();
+if (!$token) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
+    exit();
+}
+$decoded = verify_jwt($token);
+if (!$decoded) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
+    exit();
+}
+
+$jwt_user_id = $decoded['user_id'];
 
 // Support JSON POST body (Flutter often sends JSON)
 $json = file_get_contents('php://input');
@@ -15,13 +42,14 @@ if ($data) {
 }
 
 $id = trim($_POST['id'] ?? '');
-$user_id = trim($_POST['user_id'] ?? '');
+$user_id = $jwt_user_id; // Extract from JWT
 $checkpoint_id = trim($_POST['checkpoint_id'] ?? '');
 $lat = (float)($_POST['latitude'] ?? 0);
 $lon = (float)($_POST['longitude'] ?? 0);
 $equipment = $_POST['equipment'] ?? []; // Array of equipment_ids
 
 if (empty($id) || empty($user_id) || empty($checkpoint_id) || $lat == 0 || $lon == 0) {
+    http_response_code(400);
     echo json_encode(["status" => "error", "message" => "Missing required attendance data or GPS."]);
     exit();
 }

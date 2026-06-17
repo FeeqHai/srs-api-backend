@@ -1,18 +1,28 @@
 <?php
 header('Content-Type: application/json');
 require_once '../config/db_connect.php';
+require_once '../config/jwt_utils.php';
 
-if (!isset($_GET['user_id'])) {
-    echo json_encode(["status" => "error", "message" => "user_id is required."]);
+$token = get_bearer_token();
+if (!$token) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
+    exit();
+}
+$decoded = verify_jwt($token);
+if (!$decoded) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
     exit();
 }
 
-$user_id = $_GET['user_id'];
+$user_id = $decoded['user_id'];
 
 $query = "SELECT id, full_name, ic_number, phone_number, email, district_zone, role, account_status, created_at FROM users WHERE id = ?";
 $stmt = $conn->prepare($query);
 
 if (!$stmt) {
+    http_response_code(500);
     echo json_encode(["status" => "error", "message" => "Database error: " . $conn->error]);
     exit();
 }
@@ -28,6 +38,7 @@ if ($result->num_rows === 1) {
         "data" => $user
     ]);
 } else {
+    http_response_code(404);
     echo json_encode(["status" => "error", "message" => "User not found."]);
 }
 

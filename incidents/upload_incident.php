@@ -1,15 +1,33 @@
 <?php
 header('Content-Type: application/json');
-require_once '../config/db_connect.php'; // Ensure this path is correct
+require_once '../config/db_connect.php';
+require_once '../config/jwt_utils.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    http_response_code(405);
     echo json_encode(["status" => "error", "message" => "Sistem menolak request ini."]);
     exit();
 }
 
+// Enforce JWT check
+$token = get_bearer_token();
+if (!$token) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
+    exit();
+}
+$decoded = verify_jwt($token);
+if (!$decoded) {
+    http_response_code(401);
+    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
+    exit();
+}
+
+$jwt_user_id = $decoded['user_id'];
+
 // 1. Data Extraction & Sanitization (Strictly aligned with incident_service.dart)
 $id = trim($_POST['id'] ?? '');
-$reported_by = trim($_POST['reported_by'] ?? '');
+$reported_by = $jwt_user_id;
 $title = trim($_POST['title'] ?? '');
 $description = trim($_POST['description'] ?? '');
 $category = trim($_POST['category'] ?? '');
