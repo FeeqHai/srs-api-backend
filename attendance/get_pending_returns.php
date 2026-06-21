@@ -18,9 +18,9 @@ if (!$decoded) {
     echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
     exit();
 }
-if (($decoded['role'] ?? '') !== 'ketua_krt') {
+if (!in_array(($decoded['role'] ?? ''), ['ketua_krt', 'super_admin'], true)) {
     http_response_code(403);
-    echo json_encode(["status" => "error", "message" => "Ketua KRT access required."]);
+    echo json_encode(["status" => "error", "message" => "Ketua KRT or Super Admin access required."]);
     exit();
 }
 

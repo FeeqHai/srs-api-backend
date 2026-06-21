@@ -55,7 +55,7 @@ if (empty($id) || empty($user_id) || empty($checkpoint_id) || $lat == 0 || $lon 
 }
 
 // 1. Fetch user details and their squad
-$query = "SELECT u.district_zone, sm.squad_id 
+$query = "SELECT u.district_zone, u.state_id, u.district_id, u.zone_id, sm.squad_id 
           FROM users u 
           LEFT JOIN squad_members sm ON u.id = sm.user_id 
           WHERE u.id = ?";
@@ -70,6 +70,9 @@ if ($res->num_rows !== 1) {
 }
 $user = $res->fetch_assoc();
 $district_zone = $user['district_zone'];
+$state_id = $user['state_id'];
+$district_id = $user['district_id'];
+$zone_id = $user['zone_id'];
 $squad_id = $user['squad_id']; // Might be null if they don't have a squad
 $stmt->close();
 
@@ -147,10 +150,10 @@ if ($squad_id) {
 }
 
 // 4. Record attendance
-$query = "INSERT INTO attendance (id, user_id, schedule_id, checkpoint_id, latitude, longitude, clock_in_time) 
-          VALUES (?, ?, ?, ?, ?, ?, NOW())";
+$query = "INSERT INTO attendance (id, user_id, state_id, district_id, zone_id, schedule_id, checkpoint_id, latitude, longitude, clock_in_time) 
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
 $stmt = $conn->prepare($query);
-$stmt->bind_param("ssssss", $id, $user_id, $schedule_id, $checkpoint_id, $lat, $lon);
+$stmt->bind_param("sssssssss", $id, $user_id, $state_id, $district_id, $zone_id, $schedule_id, $checkpoint_id, $lat, $lon);
 
 if ($stmt->execute()) {
     // 5. Record Equipment selection (Lampiran 3)
