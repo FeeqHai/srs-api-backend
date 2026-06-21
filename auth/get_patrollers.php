@@ -1,35 +1,46 @@
 <?php
 header('Content-Type: application/json');
 require_once '../config/db_connect.php';
-require_once '../config/jwt_utils.php';
+require_once '../config/access_control.php';
 
-$token = get_bearer_token();
-if (!$token) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
-    exit();
-}
-$decoded = verify_jwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
-    exit();
+$actor = get_current_actor($conn);
+
+$select = "SELECT u.id, u.full_name, u.ic_number, u.phone_number, u.account_status, u.role,
+                   u.district_zone, u.state_id, u.district_id, u.zone_id,
+                   st.name AS state_name, d.name AS district_name, z.name AS zone_name,
+                   s.name AS squad_name
+            FROM users u
+            LEFT JOIN states st ON st.id = u.state_id
+            LEFT JOIN districts d ON d.id = u.district_id
+            LEFT JOIN zones z ON z.id = u.zone_id
+            LEFT JOIN squad_members sm ON sm.user_id = u.id
+            LEFT JOIN squads s ON s.id = sm.squad_id";
+
+if ($actor['role'] === 'super_admin') {
+    $stmt = $conn->prepare($select . " WHERE u.role IN ('peronda', 'ketua_peronda') ORDER BY u.full_name ASC");
+} elseif ($actor['role'] === 'ketua_krt') {
+    $stmt = $conn->prepare($select . " WHERE u.role IN ('peronda', 'ketua_peronda') AND u.district_id = ? ORDER BY u.full_name ASC");
+    $stmt->bind_param('s', $actor['district_id']);
+} elseif ($actor['role'] === 'ketua_peronda') {
+    $stmt = $conn->prepare($select . "
+        JOIN squad_members actor_sm ON actor_sm.squad_id = sm.squad_id
+        WHERE actor_sm.user_id = ?
+        ORDER BY u.full_name ASC");
+    $stmt->bind_param('s', $actor['id']);
+} else {
+    $stmt = $conn->prepare($select . " WHERE u.id = ? ORDER BY u.full_name ASC");
+    $stmt->bind_param('s', $actor['id']);
 }
 
-// Fetch all users with role 'peronda' or 'ketua_peronda' and their current squad if assigned
-$query = "SELECT u.id, u.full_name, u.ic_number, u.district_zone, u.phone_number, u.account_status, u.role, s.name as squad_name 
-          FROM users u 
-          LEFT JOIN squad_members sm ON u.id = sm.user_id 
-          LEFT JOIN squads s ON sm.squad_id = s.id 
-          WHERE u.role IN ('peronda', 'ketua_peronda') 
-          ORDER BY u.full_name ASC";
-$result = $conn->query($query);
+if (!$stmt) {
+    api_error(500, 'Unable to retrieve members.');
+}
+$stmt->execute();
+$result = $stmt->get_result();
 
 $patrollers = [];
-if ($result->num_rows > 0) {
-    while ($row = $result->fetch_assoc()) {
-        $patrollers[] = $row;
-    }
+while ($row = $result->fetch_assoc()) {
+    $patrollers[] = $row;
 }
 
 echo json_encode([
@@ -37,5 +48,6 @@ echo json_encode([
     "data" => $patrollers
 ]);
 
+$stmt->close();
 $conn->close();
 ?>

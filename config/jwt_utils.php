@@ -4,12 +4,15 @@
 // DO NOT leak this key in production. 
 define('JWT_SECRET', 'srs_krt_secure_key_2026_!@#');
 
-function generate_jwt($user_id, $role, $zone) {
+function generate_jwt($user_id, $role, $zone, $state_id = null, $district_id = null, $zone_id = null) {
     $header = json_encode(['typ' => 'JWT', 'alg' => 'HS256']);
     $payload = json_encode([
         'user_id' => $user_id,
         'role' => $role,
         'zone' => $zone,
+        'state_id' => $state_id,
+        'district_id' => $district_id,
+        'zone_id' => $zone_id,
         'exp' => time() + (86400 * 7) // Token expires in 7 days
     ]);
 
@@ -37,9 +40,9 @@ function verify_jwt($jwt) {
     $base64UrlSignature = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($signature));
 
     // Verify signature and expiration
-    if ($base64UrlSignature === $signature_provided) {
+    if (hash_equals($base64UrlSignature, $signature_provided)) {
         $decoded_payload = json_decode($payload, true);
-        if ($decoded_payload['exp'] > time()) {
+        if (is_array($decoded_payload) && isset($decoded_payload['exp']) && $decoded_payload['exp'] > time()) {
             return $decoded_payload; // Valid
         }
     }

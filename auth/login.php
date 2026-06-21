@@ -16,7 +16,14 @@ if (empty($email) || empty($password)) {
     exit();
 }
 
-$query = "SELECT id, full_name, password_hash, role, district_zone, account_status FROM users WHERE email = ?";
+$query = "SELECT u.id, u.full_name, u.password_hash, u.role, u.district_zone, u.account_status,
+                 u.state_id, u.district_id, u.zone_id,
+                 st.name AS state_name, d.name AS district_name, z.name AS zone_name
+          FROM users u
+          LEFT JOIN states st ON st.id = u.state_id
+          LEFT JOIN districts d ON d.id = u.district_id
+          LEFT JOIN zones z ON z.id = u.zone_id
+          WHERE u.email = ?";
 $stmt = $conn->prepare($query);
 $stmt->bind_param("s", $email);
 $stmt->execute();
@@ -36,7 +43,14 @@ if ($result->num_rows === 1) {
     
     // The bcrypt validation mechanism
     if (password_verify($password, $user['password_hash'])) {
-        $token = generate_jwt($user['id'], $user['role'], $user['district_zone']);
+        $token = generate_jwt(
+            $user['id'],
+            $user['role'],
+            $user['district_zone'],
+            $user['state_id'],
+            $user['district_id'],
+            $user['zone_id']
+        );
         echo json_encode([
             "status" => "success",
             "message" => "Authentication successful.",
@@ -44,7 +58,13 @@ if ($result->num_rows === 1) {
             "data" => [
                 "id" => $user['id'],
                 "full_name" => $user['full_name'],
-                "role" => $user['role']
+                "role" => $user['role'],
+                "state_id" => $user['state_id'],
+                "district_id" => $user['district_id'],
+                "zone_id" => $user['zone_id'],
+                "state_name" => $user['state_name'],
+                "district_name" => $user['district_name'],
+                "zone_name" => $user['zone_name']
             ]
         ]);
     } else {

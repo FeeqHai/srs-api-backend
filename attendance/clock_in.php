@@ -73,16 +73,27 @@ $district_zone = $user['district_zone'];
 $squad_id = $user['squad_id']; // Might be null if they don't have a squad
 $stmt->close();
 
-// 2. Anti-Cheat Validation (QR Payload Parsing)
+// 2. Anti-cheat validation. Legacy four-part QR codes are treated as clock-in.
 $qr_parts = explode('|', $checkpoint_id);
-if (count($qr_parts) !== 4 || $qr_parts[0] !== 'SRS_ATTENDANCE') {
+if (count($qr_parts) === 5 && $qr_parts[0] === 'SRS_ATTENDANCE') {
+    $qr_mode = strtoupper($qr_parts[1]);
+    $admin_lat = (float)$qr_parts[2];
+    $admin_lon = (float)$qr_parts[3];
+    $qr_time_str = $qr_parts[4];
+} elseif (count($qr_parts) === 4 && $qr_parts[0] === 'SRS_ATTENDANCE') {
+    $qr_mode = 'IN';
+    $admin_lat = (float)$qr_parts[1];
+    $admin_lon = (float)$qr_parts[2];
+    $qr_time_str = $qr_parts[3];
+} else {
     echo json_encode(["status" => "error", "message" => "Unknown Checkpoint: Kod QR tidak sah."]);
     exit();
 }
 
-$admin_lat = (float)$qr_parts[1];
-$admin_lon = (float)$qr_parts[2];
-$qr_time_str = $qr_parts[3];
+if ($qr_mode !== 'IN') {
+    echo json_encode(["status" => "error", "message" => "Sila gunakan QR Clock In untuk memulakan shif."]);
+    exit();
+}
 
 // A. Time Expiration Validation
 $qr_time = strtotime($qr_time_str);
@@ -106,6 +117,18 @@ if ($distance > 100) {
     echo json_encode(["status" => "error", "message" => "GPS dikesan terlalu jauh (".round($distance)."m) dari Admin."]);
     exit();
 }
+
+// A patroller cannot open another shift while one is still active or awaiting KRT acknowledgement.
+$active_query = "SELECT id FROM attendance WHERE user_id = ? AND clock_out_time IS NULL ORDER BY clock_in_time DESC LIMIT 1";
+$active_stmt = $conn->prepare($active_query);
+$active_stmt->bind_param("s", $user_id);
+$active_stmt->execute();
+if ($active_stmt->get_result()->num_rows > 0) {
+    $active_stmt->close();
+    echo json_encode(["status" => "error", "message" => "Anda masih mempunyai shif aktif atau pemulangan menunggu pengesahan Ketua KRT."]);
+    exit();
+}
+$active_stmt->close();
 
 // 3. Find matching schedule for the squad today
 $schedule_id = null;

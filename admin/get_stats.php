@@ -37,7 +37,7 @@ try {
     $total_patrollers = $patroller_res->fetch_assoc()['count'];
 
     // 2. Count active shifts (where clock_out_time is null)
-    $active_res = $conn->query("SELECT COUNT(*) as count FROM attendance WHERE clock_out_time IS NULL");
+    $active_res = $conn->query("SELECT COUNT(*) as count FROM attendance WHERE clock_out_time IS NULL AND return_status = 'active'");
     $active_shifts = $active_res->fetch_assoc()['count'];
 
     // 3. Count weekly incidents (last 7 days)

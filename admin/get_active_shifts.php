@@ -39,6 +39,7 @@ try {
               LEFT JOIN squad_members sm ON u.id = sm.user_id
               LEFT JOIN squads s ON sm.squad_id = s.id
               WHERE a.clock_out_time IS NULL
+                AND a.return_status = 'active'
               ORDER BY a.clock_in_time DESC";
               
     $result = $conn->query($query);

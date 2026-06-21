@@ -1,24 +1,19 @@
 <?php
 header('Content-Type: application/json');
 require_once '../config/db_connect.php';
-require_once '../config/jwt_utils.php';
+require_once '../config/access_control.php';
 
-$token = get_bearer_token();
-if (!$token) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
-    exit();
-}
-$decoded = verify_jwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
-    exit();
-}
+$actor = get_current_actor($conn);
+$user_id = $actor['id'];
 
-$user_id = $decoded['user_id'];
-
-$query = "SELECT id, full_name, ic_number, phone_number, email, district_zone, role, account_status, created_at FROM users WHERE id = ?";
+$query = "SELECT u.id, u.full_name, u.ic_number, u.phone_number, u.email, u.district_zone,
+                 u.state_id, u.district_id, u.zone_id, u.role, u.account_status, u.created_at,
+                 st.name AS state_name, d.name AS district_name, z.name AS zone_name
+          FROM users u
+          LEFT JOIN states st ON st.id = u.state_id
+          LEFT JOIN districts d ON d.id = u.district_id
+          LEFT JOIN zones z ON z.id = u.zone_id
+          WHERE u.id = ?";
 $stmt = $conn->prepare($query);
 
 if (!$stmt) {
