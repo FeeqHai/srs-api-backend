@@ -1,7 +1,7 @@
 <?php
 header('Content-Type: application/json');
 require_once '../config/db_connect.php';
-require_once '../config/jwt_utils.php';
+require_once '../config/access_control.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -9,24 +9,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit();
 }
 
-$token = get_bearer_token();
-if (!$token) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
-    exit();
-}
-$decoded = verify_jwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
-    exit();
-}
-
-if ($decoded['role'] !== 'ketua_krt') {
-    http_response_code(403);
-    echo json_encode(["status" => "error", "message" => "Access denied. Only Ketua KRT can perform this action."]);
-    exit();
-}
+$actor = get_current_actor($conn);
+require_role($actor, ['ketua_krt', 'super_admin']);
 
 $action = trim($_POST['action'] ?? '');
 $target_user_id = trim($_POST['user_id'] ?? '');
@@ -36,8 +20,8 @@ if (empty($action) || empty($target_user_id)) {
     exit();
 }
 
-// Verify target user exists and is not ketua_krt
-$stmt = $conn->prepare("SELECT role FROM users WHERE id = ?");
+// Authorisation comes from the current database state, not the JWT's old role.
+$stmt = $conn->prepare("SELECT role, district_id FROM users WHERE id = ?");
 $stmt->bind_param("s", $target_user_id);
 $stmt->execute();
 $res = $stmt->get_result();
@@ -49,9 +33,14 @@ if ($res->num_rows !== 1) {
 $target_user = $res->fetch_assoc();
 $stmt->close();
 
-if ($target_user['role'] === 'ketua_krt') {
-    echo json_encode(["status" => "error", "message" => "Cannot modify Ketua KRT accounts."]);
-    exit();
+if ($actor['role'] === 'ketua_krt') {
+    if (in_array($target_user['role'], ['ketua_krt', 'super_admin'], true)) {
+        api_error(403, 'Ketua KRT cannot modify Ketua KRT or Super Admin accounts.');
+    }
+
+    if (!actor_can_access_district($actor, $target_user['district_id'])) {
+        api_error(403, 'Ketua KRT can only modify users in their own district.');
+    }
 }
 
 if ($action === 'update_status') {
