@@ -34,6 +34,9 @@ if ($actor['role'] === 'peronda') {
     $where_clauses[] = "u.district_id = ?";
     $params[] = $actor['district_id'];
     $types .= "s";
+    $where_clauses[] = "LOWER(i.status) = 'submitted'";
+} elseif ($actor['role'] === 'super_admin') {
+    $where_clauses[] = "LOWER(i.status) = 'submitted'";
 }
 
 if ($user_id) {
