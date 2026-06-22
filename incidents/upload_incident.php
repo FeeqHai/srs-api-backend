@@ -1,7 +1,7 @@
 <?php
 header('Content-Type: application/json');
 require_once '../config/db_connect.php';
-require_once '../config/jwt_utils.php';
+require_once '../config/access_control.php';
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
@@ -9,21 +9,8 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit();
 }
 
-// Enforce JWT check
-$token = get_bearer_token();
-if (!$token) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
-    exit();
-}
-$decoded = verify_jwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
-    exit();
-}
-
-$jwt_user_id = $decoded['user_id'];
+$actor = get_current_actor($conn);
+$jwt_user_id = $actor['id'];
 
 // 1. Data Extraction & Sanitization (Strictly aligned with incident_service.dart)
 $id = trim($_POST['id'] ?? '');
@@ -35,10 +22,18 @@ $latitude = trim($_POST['latitude'] ?? '');
 $longitude = trim($_POST['longitude'] ?? '');
 $location_name = trim($_POST['location_name'] ?? '');
 $reported_to = trim($_POST['reported_to'] ?? '');
+$state_id = $actor['state_id'];
+$district_id = $actor['district_id'];
+$zone_id = $actor['zone_id'];
 
 // 2. Payload Validation
 if (empty($id) || empty($reported_by) || empty($title) || empty($description) || empty($category) || empty($latitude) || empty($longitude)) {
     echo json_encode(["status" => "error", "message" => "Ralat pelayan: Medan data tidak lengkap dihantar oleh aplikasi."]);
+    exit();
+}
+
+if (empty($state_id) || empty($district_id) || empty($zone_id)) {
+    echo json_encode(["status" => "error", "message" => "Lokasi akaun tidak lengkap. Sila hubungi Ketua KRT."]);
     exit();
 }
 
@@ -79,7 +74,7 @@ $public_image_url = empty($uploaded_urls) ? null : json_encode($uploaded_urls);
 
 // 5. Database Insertion
 // NOTE: Verify your table is named 'incidents' and contains these exact columns
-$query = "INSERT INTO incidents (id, user_id, title, description, category, latitude, longitude, image_url, location_name, reported_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+$query = "INSERT INTO incidents (id, user_id, state_id, district_id, zone_id, title, description, category, latitude, longitude, image_url, location_name, reported_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 $stmt = $conn->prepare($query);
 
 if (!$stmt) {
@@ -87,8 +82,8 @@ if (!$stmt) {
     exit();
 }
 
-// Bind variables (10 strings = "ssssssssss")
-$stmt->bind_param("ssssssssss", $id, $reported_by, $title, $description, $category, $latitude, $longitude, $public_image_url, $location_name, $reported_to);
+// Bind variables (13 strings)
+$stmt->bind_param("sssssssssssss", $id, $reported_by, $state_id, $district_id, $zone_id, $title, $description, $category, $latitude, $longitude, $public_image_url, $location_name, $reported_to);
 
 // 6. Final Evaluation
 if ($stmt->execute()) {
