@@ -39,10 +39,10 @@ if (empty($state_id) || empty($district_id) || empty($zone_id)) {
 
 // 3. Binary Image Handling
 $uploaded_urls = [];
-$host = $_SERVER['HTTP_HOST'];
-$upload_dir = '../uploads/incidents/';
-if (!is_dir($upload_dir)) {
-    mkdir($upload_dir, 0777, true);
+$upload_dir = __DIR__ . '/../uploads/incidents/';
+if (!is_dir($upload_dir) && !mkdir($upload_dir, 0777, true)) {
+    echo json_encode(["status" => "error", "message" => "Gagal menyediakan storan gambar."]);
+    exit();
 }
 
 $files_to_process = [];
@@ -66,7 +66,7 @@ foreach ($files_to_process as $index => $file) {
     $target_filepath = $upload_dir . $secure_filename;
     
     if (move_uploaded_file($file['tmp_name'], $target_filepath)) {
-        $uploaded_urls[] = "http://$host/srs_api/uploads/incidents/" . $secure_filename;
+        $uploaded_urls[] = 'uploads/incidents/' . $secure_filename;
     }
 }
 

@@ -64,7 +64,8 @@ if ($category_filter && $category_filter !== 'Semua') {
 }
 
 if ($start_date && $end_date) {
-    $where_clauses[] = "DATE(i.created_at) BETWEEN ? AND ?";
+    // Incident timestamps are stored in UTC; tabs submit Malaysia calendar dates.
+    $where_clauses[] = "DATE(CONVERT_TZ(i.created_at, '+00:00', '+08:00')) BETWEEN ? AND ?";
     $params[] = $start_date;
     $params[] = $end_date;
     $types .= "ss";

@@ -6,7 +6,7 @@ require_once '../config/access_control.php';
 $actor = get_current_actor($conn);
 $user_id = $actor['id'];
 
-$query = "SELECT u.id, u.full_name, u.ic_number, u.phone_number, u.email, u.district_zone,
+$query = "SELECT u.id, u.full_name, u.ic_number, u.phone_number, u.email, u.profile_image_path, u.district_zone,
                  u.state_id, u.district_id, u.zone_id, u.role, u.account_status, u.created_at,
                  st.name AS state_name, d.name AS district_name, z.name AS zone_name
           FROM users u

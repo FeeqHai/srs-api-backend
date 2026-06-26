@@ -34,12 +34,16 @@ if (!$decoded) {
     exit();
 }
 
-if ($decoded['role'] !== 'ketua_krt') {
-    http_response_code(403);
-    echo json_encode(["status" => "error", "message" => "Access denied. Only Ketua KRT can perform this action."]);
-    exit();
-}
+$role = $decoded['role'] ?? '';
 
+if (!in_array($role, ['ketua_krt', 'super_admin'], true)) {
+    http_response_code(403);
+    echo json_encode([
+        "status" => "error",
+        "message" => "Access denied. Equipment logs are for KRT/admin only."
+    ]);
+    exit;
+}
 try {
     $query = "SELECT 
                 el.attendance_id, 

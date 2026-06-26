@@ -56,7 +56,7 @@ if ($img_stmt) {
                 $path_parts = parse_url($url);
                 if (isset($path_parts['path'])) {
                     $filename = basename($path_parts['path']);
-                    $filepath = '../uploads/incidents/' . $filename;
+                    $filepath = __DIR__ . '/../uploads/incidents/' . $filename;
                     if (file_exists($filepath)) {
                         unlink($filepath);
                     }
