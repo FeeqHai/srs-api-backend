@@ -45,10 +45,18 @@ if (!in_array($role, ['ketua_krt', 'super_admin'], true)) {
     exit;
 }
 try {
-    $query = "SELECT 
-                el.attendance_id, 
-                el.borrowed_at, 
-                el.returned_at, 
+    $query = "SELECT
+                el.attendance_id,
+                MIN(el.borrowed_at) AS borrowed_at,
+                CASE
+                    WHEN a.return_status = 'completed' THEN MAX(el.returned_at)
+                    ELSE NULL
+                END AS returned_at,
+                a.return_status,
+                CASE
+                    WHEN SUM(el.returned_at IS NULL) > 0 THEN 'Sedang Digunakan'
+                    ELSE 'Telah Dipulangkan'
+                END AS display_status,
                 u.full_name as patroller_name,
                 u.phone_number,
                 GROUP_CONCAT(ei.item_name ORDER BY ei.item_name SEPARATOR ', ') as items
@@ -56,8 +64,8 @@ try {
               JOIN equipment_inventory ei ON el.equipment_id = ei.id
               JOIN attendance a ON el.attendance_id = a.id
               JOIN users u ON a.user_id = u.id
-              GROUP BY el.attendance_id, el.borrowed_at, el.returned_at, u.full_name, u.phone_number
-              ORDER BY el.borrowed_at DESC
+              GROUP BY el.attendance_id, a.return_status, u.full_name, u.phone_number
+              ORDER BY borrowed_at DESC
               LIMIT 150";
               
     $stmt = $conn->prepare($query);

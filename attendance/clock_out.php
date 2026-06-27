@@ -80,7 +80,14 @@ if ($distance > 100) {
     exit();
 }
 
-$attendance_query = "SELECT id, return_status FROM attendance WHERE user_id = ? AND clock_out_time IS NULL ORDER BY clock_in_time DESC LIMIT 1";
+$attendance_query = "SELECT id, return_status
+                     FROM attendance
+                     WHERE user_id = ?
+                       AND clock_out_time IS NULL
+                       AND clock_in_time IS NOT NULL
+                       AND return_status IN ('active', 'pending_acknowledgement')
+                     ORDER BY clock_in_time DESC
+                     LIMIT 1";
 $attendance_stmt = $conn->prepare($attendance_query);
 $attendance_stmt->bind_param("s", $user_id);
 $attendance_stmt->execute();

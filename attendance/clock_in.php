@@ -122,7 +122,14 @@ if ($distance > 100) {
 }
 
 // A patroller cannot open another shift while one is still active or awaiting KRT acknowledgement.
-$active_query = "SELECT id FROM attendance WHERE user_id = ? AND clock_out_time IS NULL ORDER BY clock_in_time DESC LIMIT 1";
+$active_query = "SELECT id
+                 FROM attendance
+                 WHERE user_id = ?
+                   AND clock_out_time IS NULL
+                   AND clock_in_time IS NOT NULL
+                   AND return_status IN ('active', 'pending_acknowledgement')
+                 ORDER BY clock_in_time DESC
+                 LIMIT 1";
 $active_stmt = $conn->prepare($active_query);
 $active_stmt->bind_param("s", $user_id);
 $active_stmt->execute();
@@ -150,8 +157,8 @@ if ($squad_id) {
 }
 
 // 4. Record attendance
-$query = "INSERT INTO attendance (id, user_id, state_id, district_id, zone_id, schedule_id, checkpoint_id, latitude, longitude, clock_in_time) 
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())";
+$query = "INSERT INTO attendance (id, user_id, state_id, district_id, zone_id, schedule_id, checkpoint_id, latitude, longitude, clock_in_time, return_status)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), 'active')";
 $stmt = $conn->prepare($query);
 $stmt->bind_param("sssssssss", $id, $user_id, $state_id, $district_id, $zone_id, $schedule_id, $checkpoint_id, $lat, $lon);
 

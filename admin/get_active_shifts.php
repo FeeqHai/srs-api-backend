@@ -32,13 +32,16 @@ if (!$decoded) {
 }
 
 try {
-    // Query active patrollers with their squad name (if any) and clock in time
-    $query = "SELECT a.id as attendance_id, a.clock_in_time, a.latitude, a.longitude, u.full_name, u.phone_number, s.name as squad_name 
+    // Query active patrollers with their squad name (if any) and clock in time.
+    $query = "SELECT a.id as attendance_id, a.clock_in_time, a.latitude, a.longitude,
+                     a.return_status, a.return_requested_at,
+                     u.full_name, u.phone_number, s.name as squad_name
               FROM attendance a
               JOIN users u ON a.user_id = u.id
               LEFT JOIN squad_members sm ON u.id = sm.user_id
               LEFT JOIN squads s ON sm.squad_id = s.id
               WHERE a.clock_out_time IS NULL
+                AND a.clock_in_time IS NOT NULL
                 AND a.return_status = 'active'
               ORDER BY a.clock_in_time DESC";
               
@@ -54,7 +57,7 @@ try {
 
         $att_id = $row['attendance_id'];
         
-        // Fetch checked-out equipment for this active shift
+        // Fetch checked-out equipment for this active shift.
         $eq_query = "SELECT ei.item_name FROM equipment_logs el JOIN equipment_inventory ei ON el.equipment_id = ei.id WHERE el.attendance_id = ? AND el.returned_at IS NULL";
         $eq_stmt = $conn->prepare($eq_query);
         $eq_stmt->bind_param("s", $att_id);

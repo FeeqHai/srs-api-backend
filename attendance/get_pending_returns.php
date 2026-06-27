@@ -24,10 +24,12 @@ if (!in_array(($decoded['role'] ?? ''), ['ketua_krt', 'super_admin'], true)) {
     exit();
 }
 
-$query = "SELECT a.id, a.return_requested_at, u.full_name
+$query = "SELECT a.id, a.return_requested_at, a.clock_in_time, u.full_name
     FROM attendance a
     JOIN users u ON u.id = a.user_id
-    WHERE a.return_status = 'pending_acknowledgement'
+    WHERE a.clock_out_time IS NULL
+      AND a.clock_in_time IS NOT NULL
+      AND a.return_status = 'pending_acknowledgement'
     ORDER BY a.return_requested_at ASC";
 $result = $conn->query($query);
 $returns = [];

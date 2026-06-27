@@ -39,7 +39,12 @@ if ($attendance_id === '') {
 $conn->begin_transaction();
 try {
     $attendance_query = "SELECT return_requested_at, return_latitude, return_longitude
-        FROM attendance WHERE id = ? AND return_status = 'pending_acknowledgement' FOR UPDATE";
+        FROM attendance
+        WHERE id = ?
+          AND clock_out_time IS NULL
+          AND clock_in_time IS NOT NULL
+          AND return_status = 'pending_acknowledgement'
+        FOR UPDATE";
     $attendance_stmt = $conn->prepare($attendance_query);
     $attendance_stmt->bind_param("s", $attendance_id);
     $attendance_stmt->execute();
@@ -51,7 +56,7 @@ try {
     $attendance_stmt->close();
 
     $complete_query = "UPDATE attendance SET
-        clock_out_time = return_requested_at,
+        clock_out_time = COALESCE(clock_out_time, NOW()),
         clock_out_latitude = return_latitude,
         clock_out_longitude = return_longitude,
         return_status = 'completed',
@@ -65,9 +70,9 @@ try {
     }
     $complete_stmt->close();
 
-    $equipment_query = "UPDATE equipment_logs SET returned_at = ? WHERE attendance_id = ? AND returned_at IS NULL";
+    $equipment_query = "UPDATE equipment_logs SET returned_at = NOW() WHERE attendance_id = ? AND returned_at IS NULL";
     $equipment_stmt = $conn->prepare($equipment_query);
-    $equipment_stmt->bind_param("ss", $attendance['return_requested_at'], $attendance_id);
+    $equipment_stmt->bind_param("s", $attendance_id);
     if (!$equipment_stmt->execute()) {
         throw new Exception('Gagal merekod pemulangan peralatan.');
     }

@@ -35,7 +35,14 @@ if (!$decoded) {
 $user_id = $decoded['user_id'];
 
 try {
-    $query = "SELECT id, clock_in_time, checkpoint_id FROM attendance WHERE user_id = ? AND clock_out_time IS NULL ORDER BY clock_in_time DESC LIMIT 1";
+    $query = "SELECT id, clock_in_time, checkpoint_id, return_status
+              FROM attendance
+              WHERE user_id = ?
+                AND clock_out_time IS NULL
+                AND clock_in_time IS NOT NULL
+                AND return_status IN ('active', 'pending_acknowledgement')
+              ORDER BY clock_in_time DESC
+              LIMIT 1";
     $stmt = $conn->prepare($query);
     if (!$stmt) {
         throw new Exception($conn->error);
@@ -48,26 +55,45 @@ try {
         $row = $result->fetch_assoc();
         $attendance_id = $row['id'];
         
-        // Fetch checked-out equipment
-        $eq_query = "SELECT ei.item_name FROM equipment_logs el JOIN equipment_inventory ei ON el.equipment_id = ei.id WHERE el.attendance_id = ? AND el.returned_at IS NULL";
+        // Fetch borrowed equipment that has not been acknowledged as returned.
+        $eq_query = "SELECT el.equipment_id AS id, ei.item_name
+                     FROM equipment_logs el
+                     JOIN equipment_inventory ei ON el.equipment_id = ei.id
+                     WHERE el.attendance_id = ? AND el.returned_at IS NULL
+                     ORDER BY ei.item_name";
         $eq_stmt = $conn->prepare($eq_query);
         $eq_stmt->bind_param("s", $attendance_id);
         $eq_stmt->execute();
         $eq_res = $eq_stmt->get_result();
         $equipment = [];
         while ($eq_row = $eq_res->fetch_assoc()) {
-            $equipment[] = $eq_row['item_name'];
+            $equipment[] = [
+                "id" => $eq_row['id'],
+                "item_name" => $eq_row['item_name']
+            ];
         }
         $eq_stmt->close();
         
         echo json_encode([
             "status" => "success",
             "has_active_shift" => true,
+            "attendance_id" => $attendance_id,
+            "checkpoint_id" => $row['checkpoint_id'],
+            "clock_in_time" => $row['clock_in_time'],
+            "return_status" => $row['return_status'],
+            "borrowed_equipment" => $equipment,
+            "pending_acknowledgement" => $row['return_status'] === 'pending_acknowledgement'
+                ? "Pemulangan anda sedang menunggu pengesahan Ketua KRT."
+                : null,
             "data" => [
                 "attendance_id" => $attendance_id,
                 "clock_in_time" => $row['clock_in_time'],
                 "checkpoint_id" => $row['checkpoint_id'],
-                "equipment" => $equipment
+                "return_status" => $row['return_status'],
+                "borrowed_equipment" => $equipment,
+                "pending_acknowledgement" => $row['return_status'] === 'pending_acknowledgement'
+                    ? "Pemulangan anda sedang menunggu pengesahan Ketua KRT."
+                    : null
             ]
         ]);
     } else {

@@ -19,7 +19,7 @@ if (!$decoded) {
     exit();
 }
 
-$attendance_query = "SELECT id FROM attendance WHERE user_id = ? AND clock_out_time IS NULL AND return_status = 'active' ORDER BY clock_in_time DESC LIMIT 1";
+$attendance_query = "SELECT id FROM attendance WHERE user_id = ? AND clock_out_time IS NULL AND clock_in_time IS NOT NULL AND return_status = 'active' ORDER BY clock_in_time DESC LIMIT 1";
 $attendance_stmt = $conn->prepare($attendance_query);
 $attendance_stmt->bind_param("s", $decoded['user_id']);
 $attendance_stmt->execute();

@@ -99,14 +99,17 @@ try {
     // Kept for the existing analytics screen, which still reads these keys.
     $patroller_res = $conn->query("SELECT COUNT(*) AS count FROM users WHERE role IN ('peronda', 'ketua_peronda')");
     $total_patrollers = (int)$patroller_res->fetch_assoc()['count'];
-    $active_res = $conn->query("SELECT COUNT(*) AS count FROM attendance WHERE clock_out_time IS NULL AND return_status = 'active'");
+    $active_res = $conn->query("SELECT COUNT(*) AS count FROM attendance WHERE clock_out_time IS NULL AND clock_in_time IS NOT NULL AND return_status = 'active'");
     $active_shifts = (int)$active_res->fetch_assoc()['count'];
+    $pending_res = $conn->query("SELECT COUNT(*) AS count FROM attendance WHERE clock_out_time IS NULL AND clock_in_time IS NOT NULL AND return_status = 'pending_acknowledgement'");
+    $pending_returns = (int)$pending_res->fetch_assoc()['count'];
 
     echo json_encode([
         "status" => "success",
         "data" => [
             "total_patrollers" => $total_patrollers,
             "active_shifts" => $active_shifts,
+            "pending_returns" => $pending_returns,
             "weekly_incidents" => array_sum($weekly_note_counts),
             "weekly_note_counts" => $weekly_note_counts,
             "monthly_note_counts" => $monthly_note_counts
