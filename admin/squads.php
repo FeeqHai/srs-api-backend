@@ -182,7 +182,12 @@ try {
 
             $squad = ensure_squad_allowed($conn, $actor, $squad_id);
 
-            $user_stmt = $conn->prepare("SELECT id, district_id, zone_id FROM users WHERE id = ? AND account_status = 'active' LIMIT 1");
+            $user_stmt = $conn->prepare(
+                "SELECT id, role, district_id, zone_id
+                 FROM users
+                 WHERE id = ? AND account_status = 'active'
+                 LIMIT 1"
+            );
             if (!$user_stmt) {
                 api_error(500, 'Unable to verify user.');
             }
@@ -190,8 +195,12 @@ try {
             $user_stmt->execute();
             $user = $user_stmt->get_result()->fetch_assoc();
             $user_stmt->close();
-            if (!$user || $user['district_id'] !== $squad['district_id'] || ($squad['zone_id'] && $user['zone_id'] !== $squad['zone_id'])) {
-                api_error(403, 'User is outside this squad location.');
+            if (
+                !$user ||
+                !in_array($user['role'], ['peronda', 'ketua_peronda'], true) ||
+                $user['district_id'] !== $squad['district_id']
+            ) {
+                api_error(403, 'User is outside this squad district.');
             }
 
             $check = $conn->prepare("SELECT sm.*, s.name AS squad_name FROM squad_members sm JOIN squads s ON sm.squad_id = s.id WHERE sm.user_id = ?");

@@ -159,9 +159,9 @@ foreach ($files_to_process as $index => $file) {
 
 $public_image_url = empty($uploaded_urls) ? null : json_encode($uploaded_urls);
 
-// 5. Database Insertion
-// NOTE: Verify your table is named 'incidents' and contains these exact columns
-$query = "INSERT INTO incidents (id, user_id, state_id, district_id, zone_id, title, description, category, latitude, longitude, image_url, location_name, reported_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+// 5. Database Insertion. New daily notes are saved as Pending drafts.
+$status = 'Pending';
+$query = "INSERT INTO incidents (id, user_id, state_id, district_id, zone_id, title, description, category, latitude, longitude, image_url, location_name, reported_to, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
 $stmt = $conn->prepare($query);
 
 if (!$stmt) {
@@ -169,17 +169,15 @@ if (!$stmt) {
     exit();
 }
 
-// Bind variables (13 strings)
-$stmt->bind_param("sssssssssssss", $id, $reported_by, $state_id, $district_id, $zone_id, $title, $description, $category, $latitude, $longitude, $public_image_url, $location_name, $reported_to);
+// Bind variables (14 strings)
+$stmt->bind_param("ssssssssssssss", $id, $reported_by, $state_id, $district_id, $zone_id, $title, $description, $category, $latitude, $longitude, $public_image_url, $location_name, $reported_to, $status);
 
 // 6. Final Evaluation
 if ($stmt->execute()) {
     if ($category === 'Kecemasan') {
         notify_sos_recipients($conn, $actor, $id, $location_name);
-    } else {
-        notify_daily_note_recipients($conn, $actor, $id, $location_name);
     }
-    echo json_encode(["status" => "success", "message" => "Laporan insiden berjaya direkodkan."]);
+    echo json_encode(["status" => "success", "message" => "Nota harian berjaya disimpan."]);
 } else {
     echo json_encode(["status" => "error", "message" => "Gagal merekodkan insiden ke dalam sistem."]);
 }
