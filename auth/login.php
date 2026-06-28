@@ -16,7 +16,13 @@ if (empty($email) || empty($password)) {
     exit();
 }
 
-$query = "SELECT u.id, u.full_name, u.password_hash, u.role, u.district_zone, u.account_status,
+$must_change_password_column = "0 AS must_change_password";
+$column_check = $conn->query("SHOW COLUMNS FROM users LIKE 'must_change_password'");
+if ($column_check && $column_check->num_rows > 0) {
+    $must_change_password_column = "u.must_change_password";
+}
+
+$query = "SELECT u.id, u.full_name, u.password_hash, u.role, u.district_zone, u.account_status, {$must_change_password_column},
                  u.state_id, u.district_id, u.zone_id,
                  st.name AS state_name, d.name AS district_name, z.name AS zone_name
           FROM users u
@@ -64,7 +70,8 @@ if ($result->num_rows === 1) {
                 "zone_id" => $user['zone_id'],
                 "state_name" => $user['state_name'],
                 "district_name" => $user['district_name'],
-                "zone_name" => $user['zone_name']
+                "zone_name" => $user['zone_name'],
+                "must_change_password" => (int)($user['must_change_password'] ?? 0)
             ]
         ]);
     } else {

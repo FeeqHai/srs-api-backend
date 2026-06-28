@@ -34,7 +34,7 @@ if (!$decoded) {
     exit();
 }
 
-if ($decoded['role'] !== 'ketua_krt') {
+if (!in_array($decoded['role'], ['ketua_krt', 'super_admin'], true)) {
     http_response_code(403);
     echo json_encode(["status" => "error", "message" => "Access denied. Only Ketua KRT can perform this action."]);
     exit();

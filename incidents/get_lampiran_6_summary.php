@@ -5,64 +5,104 @@ header("Access-Control-Allow-Methods: GET, OPTIONS");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 
 require_once '../config/db_connect.php';
-require_once '../config/jwt_utils.php';
+require_once '../config/access_control.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
     exit();
 }
 
-$token = get_bearer_token();
-if (!$token) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Missing authentication token"]);
-    exit();
-}
-$decoded = verify_jwt($token);
-if (!$decoded) {
-    http_response_code(401);
-    echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
-    exit();
-}
+$actor = get_current_actor($conn);
+require_role($actor, ['ketua_krt', 'super_admin']);
 
-$user_id = $decoded['user_id'];
 $month_offset = isset($_GET['month_offset']) ? intval($_GET['month_offset']) : 0;
-$level = isset($_GET['level']) ? $_GET['level'] : 'daerah'; // default to daerah
+$level = trim($_GET['level'] ?? 'daerah');
+$state_id = trim($_GET['state_id'] ?? '');
+$district_id = trim($_GET['district_id'] ?? '');
+$zone_id = trim($_GET['zone_id'] ?? '');
+$requested_state_id = $state_id;
+$requested_district_id = $district_id;
+$requested_zone_id = $zone_id;
 
 $target_timestamp = strtotime("-{$month_offset} months");
 $target_month = date('m', $target_timestamp);
 $target_year = date('Y', $target_timestamp);
 
-// 1. Resolve User District/Negeri/KRT
-$admin_zone = 'Zon Pusat';
-$admin_name = 'Admin KRT';
+function fetch_label($conn, $table, $id) {
+    if ($id === '') {
+        return null;
+    }
+    $allowed = ['states', 'districts', 'zones'];
+    if (!in_array($table, $allowed, true)) {
+        api_error(500, 'Invalid location label request.');
+    }
+    $stmt = $conn->prepare("SELECT name FROM {$table} WHERE id = ?");
+    if (!$stmt) {
+        api_error(500, 'Unable to resolve location label.');
+    }
+    $stmt->bind_param('s', $id);
+    $stmt->execute();
+    $row = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    return $row['name'] ?? null;
+}
 
-if (!empty($user_id)) {
-    $stmt_user = $conn->prepare("SELECT full_name, district_zone FROM users WHERE id = ?");
-    if ($stmt_user) {
-        $stmt_user->bind_param("s", $user_id);
-        $stmt_user->execute();
-        $res_user = $stmt_user->get_result();
-        if ($res_user->num_rows > 0) {
-            $user_row = $res_user->fetch_assoc();
-            $admin_name = $user_row['full_name'];
-            $admin_zone = $user_row['district_zone'] ?? 'Zon Pusat';
-        }
-        $stmt_user->close();
+function validate_filter_path($conn, $state_id, $district_id, $zone_id) {
+    if ($zone_id !== '') {
+        $stmt = $conn->prepare(
+            "SELECT z.id
+             FROM zones z
+             JOIN districts d ON d.id = z.district_id
+             JOIN states s ON s.id = d.state_id
+             WHERE z.id = ? AND d.id = ? AND s.id = ?"
+        );
+        $stmt->bind_param('sss', $zone_id, $district_id, $state_id);
+    } elseif ($district_id !== '') {
+        $stmt = $conn->prepare("SELECT id FROM districts WHERE id = ? AND state_id = ?");
+        $stmt->bind_param('ss', $district_id, $state_id);
+    } elseif ($state_id !== '') {
+        $stmt = $conn->prepare("SELECT id FROM states WHERE id = ?");
+        $stmt->bind_param('s', $state_id);
+    } else {
+        return;
+    }
+
+    if (!$stmt) {
+        api_error(500, 'Unable to validate location filter.');
+    }
+    $stmt->execute();
+    $ok = $stmt->get_result()->num_rows === 1;
+    $stmt->close();
+    if (!$ok) {
+        api_error(400, 'Invalid state, district or zone filter.');
     }
 }
 
-// Map zones to PPD (Daerah) and PPN (Negeri)
-$meta_negeri = "MELAKA";
-if ($admin_zone === 'Zon Timur') {
-    $meta_daerah = "JASIN";
-    $meta_srs = "KRT ZON TIMUR";
+if ($actor['role'] === 'ketua_krt') {
+    if ($requested_state_id !== '' && $requested_state_id !== ($actor['state_id'] ?? '')) {
+        api_error(403, 'Ketua KRT cannot query another state.');
+    }
+    if ($requested_district_id !== '' && $requested_district_id !== ($actor['district_id'] ?? '')) {
+        api_error(403, 'Ketua KRT cannot query another district.');
+    }
+    $state_id = $actor['state_id'] ?? '';
+    $district_id = $actor['district_id'] ?? '';
+    if ($state_id === '' || $district_id === '') {
+        api_error(403, 'Ketua KRT account has no district scope.');
+    }
+    if ($requested_zone_id !== '') {
+        validate_filter_path($conn, $state_id, $district_id, $zone_id);
+    }
 } else {
-    $meta_daerah = "ALOR GAJAH";
-    $meta_srs = "KRT ZON PUSAT";
+    if ($district_id !== '' && $state_id === '') {
+        api_error(400, 'State filter is required before district filter.');
+    }
+    if ($zone_id !== '' && ($state_id === '' || $district_id === '')) {
+        api_error(400, 'State and district filters are required before zone filter.');
+    }
+    validate_filter_path($conn, $state_id, $district_id, $zone_id);
 }
 
-// 2. Define JPNIN 24 Categories Structure
 $groups = [
     "A. JENAYAH KEKERASAN" => [
         "1. Pembunuhan" => "Jenayah Kekerasan - Pembunuhan",
@@ -99,7 +139,6 @@ $groups = [
     ]
 ];
 
-// Initialize summary table array
 $summary = [];
 foreach ($groups as $groupName => $subcats) {
     $summary[$groupName] = [];
@@ -115,42 +154,52 @@ foreach ($groups as $groupName => $subcats) {
     }
 }
 
-// 3. Fetch Incidents
+$where = ["MONTH(i.created_at) = ?", "YEAR(i.created_at) = ?"];
+$params = [$target_month, $target_year];
+$types = "ss";
+
+if ($state_id !== '') {
+    $where[] = "COALESCE(i.state_id, u.state_id) = ?";
+    $params[] = $state_id;
+    $types .= "s";
+}
+if ($district_id !== '') {
+    $where[] = "COALESCE(i.district_id, u.district_id) = ?";
+    $params[] = $district_id;
+    $types .= "s";
+}
+if ($zone_id !== '') {
+    $where[] = "COALESCE(i.zone_id, u.zone_id) = ?";
+    $params[] = $zone_id;
+    $types .= "s";
+}
+
 $query = "
-    SELECT i.category, i.reported_to, u.district_zone
+    SELECT i.category, i.reported_to
     FROM incidents i
     JOIN users u ON i.user_id = u.id
-    WHERE MONTH(i.created_at) = ? AND YEAR(i.created_at) = ?
-";
+    WHERE " . implode(' AND ', $where);
 
 $stmt = $conn->prepare($query);
 if (!$stmt) {
-    http_response_code(500);
-    echo json_encode(["status" => "error", "message" => "Database error: " . $conn->error]);
-    exit();
+    api_error(500, 'Database error while loading report summary.');
 }
-
-$stmt->bind_param("ss", $target_month, $target_year);
+if (count($params) === 2) {
+    $stmt->bind_param($types, $params[0], $params[1]);
+} elseif (count($params) === 3) {
+    $stmt->bind_param($types, $params[0], $params[1], $params[2]);
+} elseif (count($params) === 4) {
+    $stmt->bind_param($types, $params[0], $params[1], $params[2], $params[3]);
+} elseif (count($params) === 5) {
+    $stmt->bind_param($types, $params[0], $params[1], $params[2], $params[3], $params[4]);
+}
 $stmt->execute();
 $res = $stmt->get_result();
 
 while ($row = $res->fetch_assoc()) {
     $cat = $row['category'];
     $ref = $row['reported_to'];
-    $zone = $row['district_zone'];
-    
-    // Filter by level
-    if ($level === 'krt') {
-        if ($zone !== $admin_zone) continue;
-    } elseif ($level === 'daerah') {
-        // Since admin zone Zon Pusat maps to Alor Gajah, and Zon Timur to Jasin,
-        // we filter incidents matching the admin's Resolved Daerah.
-        if ($admin_zone === 'Zon Timur' && $zone !== 'Zon Timur') continue;
-        if ($admin_zone !== 'Zon Timur' && $zone === 'Zon Timur') continue;
-    }
-    // 'negeri' and 'kebangsaan' will count all incidents in the database
 
-    // Map agensi referral to 2015 standard columns
     $ref_code = 'lain';
     if ($ref === 'Polis') {
         $ref_code = 'polis';
@@ -159,14 +208,9 @@ while ($row = $res->fetch_assoc()) {
     } elseif ($ref === 'PBT') {
         $ref_code = 'pbt';
     } elseif ($ref === 'JKM' || $ref === 'OBB') {
-        $ref_code = 'obb'; // JKM is mapped to OBB column
-    } elseif ($ref === 'Lain-lain') {
-        $ref_code = 'lain';
-    } else {
-        $ref_code = 'lain';
+        $ref_code = 'obb';
     }
 
-    // Try to match the incident category
     $matched = false;
     foreach ($groups as $groupName => $subcats) {
         foreach ($subcats as $name => $dbKey) {
@@ -179,7 +223,6 @@ while ($row = $res->fetch_assoc()) {
         }
     }
 
-    // If it did not match any category, put under D.13 Lain-Lain Kes
     if (!$matched) {
         $summary["D. GEJALA SOSIAL"]["13. Lain-Lain Kes"]['total']++;
         $summary["D. GEJALA SOSIAL"]["13. Lain-Lain Kes"][$ref_code]++;
@@ -189,15 +232,29 @@ while ($row = $res->fetch_assoc()) {
 $month_names_my = ["Januari", "Februari", "Mac", "April", "Mei", "Jun", "Julai", "Ogos", "September", "Oktober", "November", "Disember"];
 $month_str = $month_names_my[(int)$target_month - 1];
 
+$state_label = fetch_label($conn, 'states', $state_id) ?? 'Semua Negeri';
+$district_label = fetch_label($conn, 'districts', $district_id) ?? ($state_id === '' ? 'Semua Daerah' : 'Semua Daerah');
+$zone_label = fetch_label($conn, 'zones', $zone_id) ?? ($district_id === '' ? 'Semua Zon' : 'Semua Zon');
+
 echo json_encode([
     "status" => "success",
     "month_label" => $month_str,
     "year_label" => $target_year,
     "metadata" => [
-        "negeri" => $meta_negeri,
-        "daerah" => $meta_daerah,
-        "nama_srs" => $meta_srs,
-        "admin_name" => $admin_name
+        "negeri" => $state_label,
+        "daerah" => $district_label,
+        "zone" => $zone_label,
+        "nama_srs" => $zone_id !== '' ? "KRT " . $zone_label : "Semua KRT",
+        "admin_name" => $actor['full_name'],
+        "level" => $level,
+        "filters" => [
+            "state_id" => $state_id,
+            "district_id" => $district_id,
+            "zone_id" => $zone_id,
+            "state_label" => $state_label,
+            "district_label" => $district_label,
+            "zone_label" => $zone_label
+        ]
     ],
     "data" => $summary
 ]);

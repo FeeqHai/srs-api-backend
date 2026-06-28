@@ -8,12 +8,30 @@ $parent_id = trim($_GET['parent_id'] ?? '');
 if ($level === 'states') {
     $result = $conn->query('SELECT id, code, name FROM states WHERE is_active = 1 ORDER BY name ASC');
 } elseif ($level === 'districts' && $parent_id !== '') {
-    $stmt = $conn->prepare('SELECT id, name FROM districts WHERE state_id = ? AND is_active = 1 ORDER BY name ASC');
+    $stmt = $conn->prepare('
+        SELECT d.id, d.name
+        FROM districts d
+        JOIN states st ON st.id = d.state_id
+        WHERE d.state_id = ?
+          AND d.is_active = 1
+          AND st.is_active = 1
+        ORDER BY d.name ASC
+    ');
     $stmt->bind_param('s', $parent_id);
     $stmt->execute();
     $result = $stmt->get_result();
 } elseif ($level === 'zones' && $parent_id !== '') {
-    $stmt = $conn->prepare('SELECT id, name FROM zones WHERE district_id = ? AND is_active = 1 ORDER BY name ASC');
+    $stmt = $conn->prepare('
+        SELECT z.id, z.name
+        FROM zones z
+        JOIN districts d ON d.id = z.district_id
+        JOIN states st ON st.id = d.state_id
+        WHERE z.district_id = ?
+          AND z.is_active = 1
+          AND d.is_active = 1
+          AND st.is_active = 1
+        ORDER BY z.name ASC
+    ');
     $stmt->bind_param('s', $parent_id);
     $stmt->execute();
     $result = $stmt->get_result();
