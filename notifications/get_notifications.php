@@ -9,10 +9,24 @@ if ($_SERVER['REQUEST_METHOD'] !== 'GET') {
 
 $actor = get_current_actor($conn);
 
+$count_stmt = $conn->prepare(
+    'SELECT COUNT(*) AS unread_count
+     FROM notifications
+     WHERE user_id = ? AND is_read = 0 AND COALESCE(is_deleted, 0) = 0'
+);
+if (!$count_stmt) {
+    api_error(500, 'Unable to load notifications.');
+}
+$count_stmt->bind_param('s', $actor['id']);
+$count_stmt->execute();
+$count_row = $count_stmt->get_result()->fetch_assoc();
+$unread_count = (int)($count_row['unread_count'] ?? 0);
+$count_stmt->close();
+
 $stmt = $conn->prepare(
     'SELECT id, type, title, body, payload_json, is_read, created_at
      FROM notifications
-     WHERE user_id = ?
+     WHERE user_id = ? AND COALESCE(is_deleted, 0) = 0
      ORDER BY created_at DESC
      LIMIT 100'
 );
@@ -38,6 +52,10 @@ $conn->close();
 
 echo json_encode([
     'status' => 'success',
-    'data' => $notifications
+    'message' => 'Notifications loaded.',
+    'data' => [
+        'notifications' => $notifications,
+        'unread_count' => $unread_count
+    ]
 ]);
 ?>

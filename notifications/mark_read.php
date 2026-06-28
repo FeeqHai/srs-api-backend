@@ -10,7 +10,7 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 $actor = get_current_actor($conn);
 $raw = file_get_contents('php://input');
 $json = json_decode($raw, true);
-$notification_id = trim($_POST['id'] ?? ($json['id'] ?? ''));
+$notification_id = trim($_POST['notification_id'] ?? ($json['notification_id'] ?? ($_POST['id'] ?? ($json['id'] ?? ''))));
 
 if ($notification_id === '') {
     api_error(400, 'Notification id is required.');
@@ -19,7 +19,7 @@ if ($notification_id === '') {
 $stmt = $conn->prepare(
     'UPDATE notifications
      SET is_read = 1, read_at = NOW()
-     WHERE id = ? AND user_id = ?'
+     WHERE id = ? AND user_id = ? AND COALESCE(is_deleted, 0) = 0'
 );
 if (!$stmt) {
     api_error(500, 'Unable to update notification.');
