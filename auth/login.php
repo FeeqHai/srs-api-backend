@@ -22,7 +22,30 @@ if ($column_check && $column_check->num_rows > 0) {
     $must_change_password_column = "u.must_change_password";
 }
 
-$query = "SELECT u.id, u.full_name, u.password_hash, u.role, u.district_zone, u.account_status, {$must_change_password_column},
+$has_profile_image_url = false;
+$profile_url_check = $conn->query("SHOW COLUMNS FROM users LIKE 'profile_image_url'");
+if ($profile_url_check && $profile_url_check->num_rows > 0) {
+    $has_profile_image_url = true;
+}
+
+$has_profile_image_path = false;
+$profile_path_check = $conn->query("SHOW COLUMNS FROM users LIKE 'profile_image_path'");
+if ($profile_path_check && $profile_path_check->num_rows > 0) {
+    $has_profile_image_path = true;
+}
+
+if ($has_profile_image_url && $has_profile_image_path) {
+    $profile_image_column = "COALESCE(u.profile_image_url, u.profile_image_path) AS profile_image_url, u.profile_image_path";
+} elseif ($has_profile_image_url) {
+    $profile_image_column = "u.profile_image_url, NULL AS profile_image_path";
+} elseif ($has_profile_image_path) {
+    $profile_image_column = "u.profile_image_path AS profile_image_url, u.profile_image_path";
+} else {
+    $profile_image_column = "NULL AS profile_image_url, NULL AS profile_image_path";
+}
+
+$query = "SELECT u.id, u.full_name, u.email, u.password_hash, u.role, u.district_zone, u.account_status, {$must_change_password_column},
+                 {$profile_image_column},
                  u.state_id, u.district_id, u.zone_id,
                  st.name AS state_name, d.name AS district_name, z.name AS zone_name
           FROM users u
@@ -64,7 +87,10 @@ if ($result->num_rows === 1) {
             "data" => [
                 "id" => $user['id'],
                 "full_name" => $user['full_name'],
+                "email" => $user['email'],
                 "role" => $user['role'],
+                "profile_image_url" => $user['profile_image_url'],
+                "profile_image_path" => $user['profile_image_path'],
                 "state_id" => $user['state_id'],
                 "district_id" => $user['district_id'],
                 "zone_id" => $user['zone_id'],

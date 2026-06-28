@@ -35,6 +35,28 @@ if (!$decoded) {
 $user_id = $decoded['user_id'];
 
 try {
+    $has_profile_image_url = false;
+    $profile_url_check = $conn->query("SHOW COLUMNS FROM users LIKE 'profile_image_url'");
+    if ($profile_url_check && $profile_url_check->num_rows > 0) {
+        $has_profile_image_url = true;
+    }
+
+    $has_profile_image_path = false;
+    $profile_path_check = $conn->query("SHOW COLUMNS FROM users LIKE 'profile_image_path'");
+    if ($profile_path_check && $profile_path_check->num_rows > 0) {
+        $has_profile_image_path = true;
+    }
+
+    if ($has_profile_image_url && $has_profile_image_path) {
+        $profile_image_column = "COALESCE(u.profile_image_url, u.profile_image_path) AS profile_image_url";
+    } elseif ($has_profile_image_url) {
+        $profile_image_column = "u.profile_image_url";
+    } elseif ($has_profile_image_path) {
+        $profile_image_column = "u.profile_image_path AS profile_image_url";
+    } else {
+        $profile_image_column = "NULL AS profile_image_url";
+    }
+
     // 1. Get the user's squad
     $squad_query = "SELECT s.id as squad_id, s.name as squad_name, sm.role as squad_role 
                     FROM squad_members sm 
@@ -75,7 +97,7 @@ try {
 
         // 3. Get the squad's members
         $members = [];
-        $members_query = "SELECT u.id as user_id, u.full_name, u.phone_number, sm.role as squad_role 
+        $members_query = "SELECT u.id as user_id, u.full_name, u.phone_number, {$profile_image_column}, sm.role as squad_role 
                           FROM squad_members sm 
                           JOIN users u ON sm.user_id = u.id 
                           WHERE sm.squad_id = ? 

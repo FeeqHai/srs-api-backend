@@ -42,11 +42,24 @@ if (!move_uploaded_file($_FILES['image']['tmp_name'], $target_path)) {
 }
 
 $relative_path = 'uploads/profile_pictures/' . $filename;
-$stmt = $conn->prepare('UPDATE users SET profile_image_path = ? WHERE id = ?');
+$has_profile_image_url = false;
+$profile_url_check = $conn->query("SHOW COLUMNS FROM users LIKE 'profile_image_url'");
+if ($profile_url_check && $profile_url_check->num_rows > 0) {
+    $has_profile_image_url = true;
+}
+
+$update_query = $has_profile_image_url
+    ? 'UPDATE users SET profile_image_path = ?, profile_image_url = ? WHERE id = ?'
+    : 'UPDATE users SET profile_image_path = ? WHERE id = ?';
+$stmt = $conn->prepare($update_query);
 if (!$stmt) {
     api_error(500, 'Gagal mengemas kini gambar profil.');
 }
-$stmt->bind_param('ss', $relative_path, $actor['id']);
+if ($has_profile_image_url) {
+    $stmt->bind_param('sss', $relative_path, $relative_path, $actor['id']);
+} else {
+    $stmt->bind_param('ss', $relative_path, $actor['id']);
+}
 if (!$stmt->execute()) {
     $stmt->close();
     api_error(500, 'Gagal mengemas kini gambar profil.');
@@ -57,5 +70,8 @@ $conn->close();
 echo json_encode([
     'status' => 'success',
     'profile_image_path' => $relative_path,
+    'data' => [
+        'profile_image_url' => $relative_path
+    ]
 ]);
 ?>
