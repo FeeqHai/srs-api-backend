@@ -171,7 +171,7 @@ if ($action === 'update_status') {
 } elseif ($action === 'promote_role' || $action === 'update_role') {
     $role = trim($_POST['role'] ?? '');
     $allowed_roles = $actor['role'] === 'super_admin'
-        ? ['peronda', 'ketua_peronda', 'ketua_krt']
+        ? ['peronda', 'ketua_peronda', 'ketua_krt', 'super_admin']
         : ['peronda', 'ketua_peronda'];
 
     if (!in_array($role, $allowed_roles, true)) {

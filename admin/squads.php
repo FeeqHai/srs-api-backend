@@ -85,13 +85,18 @@ try {
 
         $sql = "SELECT s.id AS squad_id, s.name AS squad_name, s.state_id, s.district_id, s.zone_id,
                        st.name AS state_name, d.name AS district_name, z.name AS zone_name,
-                       s.created_at, sm.user_id, sm.role, u.full_name, u.ic_number
+                       s.created_at, sm.user_id, sm.role, u.full_name, u.ic_number,
+                       u.state_id AS member_state_id, u.district_id AS member_district_id, u.zone_id AS member_zone_id,
+                       ust.name AS member_state_name, ud.name AS member_district_name, uz.name AS member_zone_name
                 FROM squads s
                 LEFT JOIN states st ON st.id = s.state_id
                 LEFT JOIN districts d ON d.id = s.district_id
                 LEFT JOIN zones z ON z.id = s.zone_id
                 LEFT JOIN squad_members sm ON s.id = sm.squad_id
                 LEFT JOIN users u ON sm.user_id = u.id
+                LEFT JOIN states ust ON ust.id = u.state_id
+                LEFT JOIN districts ud ON ud.id = u.district_id
+                LEFT JOIN zones uz ON uz.id = u.zone_id
                 WHERE " . implode(' AND ', $where) . "
                 ORDER BY s.created_at DESC, u.full_name ASC";
 
@@ -126,7 +131,13 @@ try {
                     'user_id' => $row['user_id'],
                     'role' => $row['role'],
                     'full_name' => $row['full_name'],
-                    'ic_number' => $row['ic_number']
+                    'ic_number' => $row['ic_number'],
+                    'member_state_id' => $row['member_state_id'],
+                    'member_district_id' => $row['member_district_id'],
+                    'member_zone_id' => $row['member_zone_id'],
+                    'member_state_name' => $row['member_state_name'],
+                    'member_district_name' => $row['member_district_name'],
+                    'member_zone_name' => $row['member_zone_name']
                 ];
             }
         }
@@ -150,7 +161,87 @@ try {
 
             $state_id = $actor['role'] === 'super_admin' ? ($_POST['state_id'] ?? null) : $actor['state_id'];
             $district_id = $actor['role'] === 'super_admin' ? ($_POST['district_id'] ?? null) : $actor['district_id'];
-            $zone_id = $actor['role'] === 'super_admin' ? ($_POST['zone_id'] ?? null) : $actor['zone_id'];
+            $zone_id = trim($_POST['zone_id'] ?? '');
+            $zone_id = $zone_id === '' ? null : $zone_id;
+            $head_user_id = trim($_POST['head_user_id'] ?? '');
+            $member_ids_raw = $_POST['member_ids'] ?? '';
+            if (is_array($member_ids_raw)) {
+                $member_ids = $member_ids_raw;
+            } else {
+                $member_ids = explode(',', $member_ids_raw);
+            }
+            $member_ids = array_values(array_unique(array_filter(array_map('trim', $member_ids))));
+
+            if (!$state_id || !$district_id) {
+                api_error(400, 'State and district are required.');
+            }
+            if ($head_user_id === '') {
+                api_error(400, 'Head patroller is required.');
+            }
+            if (in_array($head_user_id, $member_ids, true)) {
+                api_error(400, 'Head patroller cannot also be selected as a patroller.');
+            }
+            if (count($member_ids) < 2 || count($member_ids) > 20) {
+                api_error(400, 'Please select between 2 and 20 patrollers.');
+            }
+
+            $district_stmt = $conn->prepare("SELECT id FROM districts WHERE id = ? AND state_id = ? LIMIT 1");
+            if (!$district_stmt) {
+                api_error(500, 'Unable to verify district.');
+            }
+            $district_stmt->bind_param('ss', $district_id, $state_id);
+            $district_stmt->execute();
+            $district_ok = $district_stmt->get_result()->fetch_assoc();
+            $district_stmt->close();
+            if (!$district_ok) {
+                api_error(400, 'District does not belong to the selected state.');
+            }
+
+            $selected_user_ids = array_merge([$head_user_id], $member_ids);
+            $placeholders = implode(',', array_fill(0, count($selected_user_ids), '?'));
+            $user_sql = "SELECT u.id, u.full_name, u.role, u.account_status, u.district_id,
+                                sm.squad_id, existing.name AS squad_name
+                         FROM users u
+                         LEFT JOIN squad_members sm ON sm.user_id = u.id
+                         LEFT JOIN squads existing ON existing.id = sm.squad_id
+                         WHERE u.id IN ($placeholders)";
+            $user_stmt = $conn->prepare($user_sql);
+            if (!$user_stmt) {
+                api_error(500, 'Unable to verify squad members.');
+            }
+            $user_types = str_repeat('s', count($selected_user_ids));
+            bind_values($user_stmt, $user_types, $selected_user_ids);
+            $user_stmt->execute();
+            $users = [];
+            $user_result = $user_stmt->get_result();
+            while ($row = $user_result->fetch_assoc()) {
+                $users[$row['id']] = $row;
+            }
+            $user_stmt->close();
+
+            foreach ($selected_user_ids as $user_id) {
+                if (!isset($users[$user_id])) {
+                    api_error(400, 'Selected user was not found.');
+                }
+                $user = $users[$user_id];
+                if (($user['account_status'] ?? '') !== 'active') {
+                    api_error(400, ($user['full_name'] ?? 'Selected user') . ' is not active.');
+                }
+                if (($user['district_id'] ?? '') !== $district_id) {
+                    api_error(400, ($user['full_name'] ?? 'Selected user') . ' is outside the selected district.');
+                }
+                if (!empty($user['squad_id'])) {
+                    api_error(400, ($user['full_name'] ?? 'Selected user') . ' is already assigned to ' . ($user['squad_name'] ?? 'another squad') . '.');
+                }
+            }
+            if (($users[$head_user_id]['role'] ?? '') !== 'ketua_peronda') {
+                api_error(400, 'Head patroller must have the Ketua Peronda role.');
+            }
+            foreach ($member_ids as $member_id) {
+                if (($users[$member_id]['role'] ?? '') !== 'peronda') {
+                    api_error(400, ($users[$member_id]['full_name'] ?? 'Selected user') . ' must have the Peronda role.');
+                }
+            }
 
             $id = sprintf('%04x%04x-%04x-%04x-%04x-%04x%04x%04x',
                 mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff),
@@ -158,16 +249,40 @@ try {
                 mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
             );
 
-            $stmt = $conn->prepare("INSERT INTO squads (id, name, state_id, district_id, zone_id) VALUES (?, ?, ?, ?, ?)");
-            if (!$stmt) {
-                api_error(500, 'Unable to create squad.');
-            }
-            $stmt->bind_param('sssss', $id, $name, $state_id, $district_id, $zone_id);
-            if (!$stmt->execute()) {
+            $conn->begin_transaction();
+            try {
+                $stmt = $conn->prepare("INSERT INTO squads (id, name, state_id, district_id, zone_id) VALUES (?, ?, ?, ?, ?)");
+                if (!$stmt) {
+                    throw new Exception('Unable to create squad.');
+                }
+                $stmt->bind_param('sssss', $id, $name, $state_id, $district_id, $zone_id);
+                if (!$stmt->execute()) {
+                    throw new Exception('Unable to create squad.');
+                }
                 $stmt->close();
-                api_error(500, 'Unable to create squad.');
+
+                $member_stmt = $conn->prepare("INSERT INTO squad_members (squad_id, user_id, role) VALUES (?, ?, ?)");
+                if (!$member_stmt) {
+                    throw new Exception('Unable to add squad members.');
+                }
+                $role = 'leader';
+                $member_stmt->bind_param('sss', $id, $head_user_id, $role);
+                if (!$member_stmt->execute()) {
+                    throw new Exception('Unable to add head patroller.');
+                }
+                $role = 'member';
+                foreach ($member_ids as $member_id) {
+                    $member_stmt->bind_param('sss', $id, $member_id, $role);
+                    if (!$member_stmt->execute()) {
+                        throw new Exception('Unable to add patrollers.');
+                    }
+                }
+                $member_stmt->close();
+                $conn->commit();
+            } catch (Exception $e) {
+                $conn->rollback();
+                api_error(500, $e->getMessage());
             }
-            $stmt->close();
 
             echo json_encode(['status' => 'success', 'message' => 'Squad created successfully', 'squad_id' => $id]);
         } elseif ($action === 'add_member') {

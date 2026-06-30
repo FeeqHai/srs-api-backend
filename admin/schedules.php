@@ -63,6 +63,41 @@ function squad_is_allowed($conn, $actor, $squad_id) {
     return $allowed;
 }
 
+function fetch_squad($conn, $squad_id) {
+    $stmt = $conn->prepare("SELECT id, state_id, district_id, zone_id FROM squads WHERE id = ? LIMIT 1");
+    if (!$stmt) {
+        api_error(500, 'Unable to load squad location.');
+    }
+    $stmt->bind_param('s', $squad_id);
+    $stmt->execute();
+    $squad = $stmt->get_result()->fetch_assoc();
+    $stmt->close();
+    if (!$squad) {
+        api_error(404, 'Squad not found.');
+    }
+    return $squad;
+}
+
+function validate_location_path($conn, $state_id, $district_id, $zone_id) {
+    $stmt = $conn->prepare(
+        "SELECT z.id
+         FROM zones z
+         JOIN districts d ON d.id = z.district_id
+         WHERE z.id = ? AND d.id = ? AND d.state_id = ?
+         LIMIT 1"
+    );
+    if (!$stmt) {
+        api_error(500, 'Unable to validate patrol zone.');
+    }
+    $stmt->bind_param('sss', $zone_id, $district_id, $state_id);
+    $stmt->execute();
+    $valid = $stmt->get_result()->num_rows > 0;
+    $stmt->close();
+    if (!$valid) {
+        api_error(400, 'Invalid patrol location.');
+    }
+}
+
 function schedule_timestamp($shift_date, $time) {
     return strtotime($shift_date . ' ' . $time);
 }
@@ -124,7 +159,12 @@ try {
         $params = [];
         $where = [schedule_scope_clause($actor, $types, $params)];
 
-        foreach (['date' => 'sc.shift_date', 'state_id' => 'sq.state_id', 'district_id' => 'sq.district_id', 'zone_id' => 'sq.zone_id'] as $query_key => $column) {
+        foreach ([
+            'date' => 'sc.shift_date',
+            'state_id' => 'COALESCE(sc.state_id, sq.state_id)',
+            'district_id' => 'COALESCE(sc.district_id, sq.district_id)',
+            'zone_id' => 'COALESCE(sc.zone_id, sq.zone_id)'
+        ] as $query_key => $column) {
             $value = trim($_GET[$query_key] ?? '');
             if ($value !== '') {
                 $where[] = "{$column} = ?";
@@ -134,18 +174,27 @@ try {
         }
 
         $sql = "SELECT sc.id, sc.squad_id, sc.shift_date, sc.start_time, sc.end_time, sc.created_at,
-                       sq.name AS squad_name, sq.state_id, sq.district_id, sq.zone_id,
+                       sq.name AS squad_name,
+                       COALESCE(sc.state_id, sq.state_id) AS state_id,
+                       COALESCE(sc.district_id, sq.district_id) AS district_id,
+                       COALESCE(sc.zone_id, sq.zone_id) AS zone_id,
                        st.name AS state_name, d.name AS district_name, z.name AS zone_name,
+                       sq.state_id AS squad_state_id, sq.district_id AS squad_district_id, sq.zone_id AS squad_zone_id,
+                       sst.name AS squad_state_name, sd.name AS squad_district_name, sz.name AS squad_zone_name,
                        COUNT(sm.user_id) AS member_count
                 FROM schedules sc
                 JOIN squads sq ON sc.squad_id = sq.id
-                LEFT JOIN states st ON st.id = sq.state_id
-                LEFT JOIN districts d ON d.id = sq.district_id
-                LEFT JOIN zones z ON z.id = sq.zone_id
+                LEFT JOIN states st ON st.id = COALESCE(sc.state_id, sq.state_id)
+                LEFT JOIN districts d ON d.id = COALESCE(sc.district_id, sq.district_id)
+                LEFT JOIN zones z ON z.id = COALESCE(sc.zone_id, sq.zone_id)
+                LEFT JOIN states sst ON sst.id = sq.state_id
+                LEFT JOIN districts sd ON sd.id = sq.district_id
+                LEFT JOIN zones sz ON sz.id = sq.zone_id
                 LEFT JOIN squad_members sm ON sm.squad_id = sq.id
                 WHERE " . implode(' AND ', $where) . "
                 GROUP BY sc.id, sc.squad_id, sc.shift_date, sc.start_time, sc.end_time, sc.created_at,
-                         sq.name, sq.state_id, sq.district_id, sq.zone_id, st.name, d.name, z.name
+                         sq.name, sc.state_id, sc.district_id, sc.zone_id, sq.state_id, sq.district_id, sq.zone_id,
+                         st.name, d.name, z.name, sst.name, sd.name, sz.name
                 ORDER BY sc.shift_date ASC, sc.start_time ASC";
 
         $stmt = $conn->prepare($sql);
@@ -175,6 +224,7 @@ try {
             $shift_date = trim($_POST['shift_date'] ?? '');
             $start_time = trim($_POST['start_time'] ?? '');
             $end_time = trim($_POST['end_time'] ?? '');
+            $squad = null;
 
             if ($squad_id === '' || $shift_date === '' || $start_time === '' || $end_time === '') {
                 api_error(400, 'All fields are required.');
@@ -182,6 +232,18 @@ try {
 
             if (!squad_is_allowed($conn, $actor, $squad_id)) {
                 api_error(403, 'You cannot assign schedules to this squad.');
+            }
+            $squad = fetch_squad($conn, $squad_id);
+
+            $state_id = trim($_POST['state_id'] ?? '') ?: $squad['state_id'];
+            $district_id = trim($_POST['district_id'] ?? '') ?: $squad['district_id'];
+            $zone_id = trim($_POST['zone_id'] ?? '') ?: $squad['zone_id'];
+            if ($state_id === '' || $district_id === '' || $zone_id === '') {
+                api_error(400, 'Patrol location is required.');
+            }
+            validate_location_path($conn, $state_id, $district_id, $zone_id);
+            if ($actor['role'] === 'ketua_krt' && $district_id !== $actor['district_id']) {
+                api_error(403, 'You can only assign patrols within your district.');
             }
 
             if (schedule_overlaps($conn, $squad_id, $shift_date, $start_time, $end_time)) {
@@ -194,11 +256,11 @@ try {
                 mt_rand(0, 0xffff), mt_rand(0, 0xffff), mt_rand(0, 0xffff)
             );
 
-            $stmt = $conn->prepare("INSERT INTO schedules (id, squad_id, shift_date, start_time, end_time) VALUES (?, ?, ?, ?, ?)");
+            $stmt = $conn->prepare("INSERT INTO schedules (id, squad_id, state_id, district_id, zone_id, shift_date, start_time, end_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
             if (!$stmt) {
                 api_error(500, 'Unable to create schedule.');
             }
-            $stmt->bind_param('sssss', $id, $squad_id, $shift_date, $start_time, $end_time);
+            $stmt->bind_param('ssssssss', $id, $squad_id, $state_id, $district_id, $zone_id, $shift_date, $start_time, $end_time);
             if (!$stmt->execute()) {
                 $stmt->close();
                 api_error(500, 'Unable to create schedule.');

@@ -145,13 +145,16 @@ $schedule_id = null;
 if ($squad_id) {
     // Check if there's a schedule for today
     $cur_date = date('Y-m-d');
-    $sch_query = "SELECT id FROM schedules WHERE squad_id = ? AND shift_date = ?";
+    $sch_query = "SELECT id, state_id, district_id, zone_id FROM schedules WHERE squad_id = ? AND shift_date = ?";
     $sch_stmt = $conn->prepare($sch_query);
     $sch_stmt->bind_param("ss", $squad_id, $cur_date);
     $sch_stmt->execute();
     $sch_res = $sch_stmt->get_result();
     if ($sch_row = $sch_res->fetch_assoc()) {
         $schedule_id = $sch_row['id'];
+        $state_id = $sch_row['state_id'] ?: $state_id;
+        $district_id = $sch_row['district_id'] ?: $district_id;
+        $zone_id = $sch_row['zone_id'] ?: $zone_id;
     }
     $sch_stmt->close();
 }

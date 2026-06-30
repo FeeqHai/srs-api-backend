@@ -17,6 +17,12 @@ if ($profile_path_check && $profile_path_check->num_rows > 0) {
     $has_profile_image_path = true;
 }
 
+$must_change_password_column = "0 AS must_change_password";
+$must_change_password_check = $conn->query("SHOW COLUMNS FROM users LIKE 'must_change_password'");
+if ($must_change_password_check && $must_change_password_check->num_rows > 0) {
+    $must_change_password_column = "u.must_change_password";
+}
+
 if ($has_profile_image_url && $has_profile_image_path) {
     $profile_image_column = "COALESCE(u.profile_image_url, u.profile_image_path) AS profile_image_url, u.profile_image_path";
 } elseif ($has_profile_image_url) {
@@ -27,7 +33,7 @@ if ($has_profile_image_url && $has_profile_image_path) {
     $profile_image_column = "NULL AS profile_image_url, NULL AS profile_image_path";
 }
 
-$select = "SELECT u.id, u.full_name, u.ic_number, u.phone_number, u.email, u.account_status, u.role,
+$select = "SELECT u.id, u.full_name, u.ic_number, u.phone_number, u.email, u.account_status, u.role, {$must_change_password_column},
                    {$profile_image_column},
                    u.district_zone, u.state_id, u.district_id, u.zone_id,
                    st.name AS state_name, d.name AS district_name, z.name AS zone_name,
@@ -40,7 +46,7 @@ $select = "SELECT u.id, u.full_name, u.ic_number, u.phone_number, u.email, u.acc
             LEFT JOIN squads s ON s.id = sm.squad_id";
 
 if ($actor['role'] === 'super_admin') {
-    $stmt = $conn->prepare($select . " WHERE u.role IN ('peronda', 'ketua_peronda', 'ketua_krt') ORDER BY u.full_name ASC");
+    $stmt = $conn->prepare($select . " WHERE u.role IN ('peronda', 'ketua_peronda', 'ketua_krt', 'super_admin') ORDER BY u.full_name ASC");
 } elseif ($actor['role'] === 'ketua_krt') {
     $stmt = $conn->prepare($select . " WHERE u.role IN ('peronda', 'ketua_peronda') AND u.district_id = ? ORDER BY u.full_name ASC");
     $stmt->bind_param('s', $actor['district_id']);

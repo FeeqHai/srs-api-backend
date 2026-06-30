@@ -79,9 +79,17 @@ try {
         $stmt->close();
         
         // 2. Get the squad's schedules (today and upcoming/all)
-        $schedule_query = "SELECT id, shift_date, start_time, end_time 
-                           FROM schedules 
-                           WHERE squad_id = ? 
+        $schedule_query = "SELECT sc.id, sc.shift_date, sc.start_time, sc.end_time,
+                                  COALESCE(sc.state_id, sq.state_id) AS state_id,
+                                  COALESCE(sc.district_id, sq.district_id) AS district_id,
+                                  COALESCE(sc.zone_id, sq.zone_id) AS zone_id,
+                                  st.name AS state_name, d.name AS district_name, z.name AS zone_name
+                           FROM schedules sc
+                           JOIN squads sq ON sq.id = sc.squad_id
+                           LEFT JOIN states st ON st.id = COALESCE(sc.state_id, sq.state_id)
+                           LEFT JOIN districts d ON d.id = COALESCE(sc.district_id, sq.district_id)
+                           LEFT JOIN zones z ON z.id = COALESCE(sc.zone_id, sq.zone_id)
+                           WHERE sc.squad_id = ?
                            ORDER BY shift_date DESC, start_time ASC";
         $stmt2 = $conn->prepare($schedule_query);
         if (!$stmt2) {
