@@ -14,6 +14,9 @@ $offset = ($page - 1) * $limit;
 
 $user_id = isset($_GET['user_id']) ? trim($_GET['user_id']) : null;
 $category_filter = $_GET['category'] ?? null;
+$state_filter = isset($_GET['state_id']) ? trim($_GET['state_id']) : '';
+$district_filter = isset($_GET['district_id']) ? trim($_GET['district_id']) : '';
+$zone_id_filter = isset($_GET['zone_id']) ? trim($_GET['zone_id']) : '';
 
 $where_clauses = [];
 $params = [];
@@ -46,7 +49,21 @@ if ($user_id) {
 }
 
 $zone_filter = $_GET['zone'] ?? null;
-if ($zone_filter && $zone_filter !== 'Semua') {
+if ($state_filter !== '') {
+    $where_clauses[] = "COALESCE(i.state_id, u.state_id) = ?";
+    $params[] = $state_filter;
+    $types .= "s";
+}
+if ($district_filter !== '') {
+    $where_clauses[] = "COALESCE(i.district_id, u.district_id) = ?";
+    $params[] = $district_filter;
+    $types .= "s";
+}
+if ($zone_id_filter !== '') {
+    $where_clauses[] = "COALESCE(i.zone_id, u.zone_id) = ?";
+    $params[] = $zone_id_filter;
+    $types .= "s";
+} elseif ($zone_filter && $zone_filter !== 'Semua') {
     $where_clauses[] = "u.district_zone = ?";
     $params[] = $zone_filter;
     $types .= "s";
@@ -76,9 +93,19 @@ if (count($where_clauses) > 0) {
     $where_sql .= " AND " . implode(" AND ", $where_clauses);
 }
 
-$query = "SELECT i.*, u.full_name, u.district_zone 
+$query = "SELECT i.*, u.full_name, u.district_zone,
+                 COALESCE(ist.name, ust.name) AS state_name,
+                 COALESCE(idt.name, udt.name) AS district_name,
+                 COALESCE(iz.name, uz.name, u.district_zone) AS zone_name,
+                 COALESCE(iz.name, uz.name, u.district_zone) AS zone
           FROM incidents i 
           JOIN users u ON i.user_id = u.id 
+          LEFT JOIN states ist ON ist.id = i.state_id
+          LEFT JOIN districts idt ON idt.id = i.district_id
+          LEFT JOIN zones iz ON iz.id = i.zone_id
+          LEFT JOIN states ust ON ust.id = u.state_id
+          LEFT JOIN districts udt ON udt.id = u.district_id
+          LEFT JOIN zones uz ON uz.id = u.zone_id
           $where_sql
           ORDER BY i.created_at DESC 
           LIMIT ? OFFSET ?";
