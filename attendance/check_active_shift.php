@@ -35,7 +35,7 @@ if (!$decoded) {
 $user_id = $decoded['user_id'];
 
 try {
-    $query = "SELECT id, clock_in_time, checkpoint_id, return_status
+    $query = "SELECT id, clock_in_time, checkpoint_id, return_status, schedule_id
               FROM attendance
               WHERE user_id = ?
                 AND clock_out_time IS NULL
@@ -79,20 +79,22 @@ try {
             "has_active_shift" => true,
             "attendance_id" => $attendance_id,
             "checkpoint_id" => $row['checkpoint_id'],
+            "schedule_id" => $row['schedule_id'],
             "clock_in_time" => $row['clock_in_time'],
             "return_status" => $row['return_status'],
             "borrowed_equipment" => $equipment,
             "pending_acknowledgement" => $row['return_status'] === 'pending_acknowledgement'
-                ? "Pemulangan anda sedang menunggu pengesahan Ketua KRT."
+                ? "Pemulangan anda sedang menunggu pengesahan Ketua Peronda atau Ketua KRT."
                 : null,
             "data" => [
                 "attendance_id" => $attendance_id,
                 "clock_in_time" => $row['clock_in_time'],
                 "checkpoint_id" => $row['checkpoint_id'],
+                "schedule_id" => $row['schedule_id'],
                 "return_status" => $row['return_status'],
                 "borrowed_equipment" => $equipment,
                 "pending_acknowledgement" => $row['return_status'] === 'pending_acknowledgement'
-                    ? "Pemulangan anda sedang menunggu pengesahan Ketua KRT."
+                    ? "Pemulangan anda sedang menunggu pengesahan Ketua Peronda atau Ketua KRT."
                     : null
             ]
         ]);

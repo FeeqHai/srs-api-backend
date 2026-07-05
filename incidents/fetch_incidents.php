@@ -81,8 +81,9 @@ if ($category_filter && $category_filter !== 'Semua') {
 }
 
 if ($start_date && $end_date) {
-    // Incident timestamps are stored in UTC; tabs submit Malaysia calendar dates.
-    $where_clauses[] = "DATE(CONVERT_TZ(i.created_at, '+00:00', '+08:00')) BETWEEN ? AND ?";
+    // XAMPP stores MySQL TIMESTAMP values in the local Malaysia session time.
+    // Filter by the stored calendar date so late-night local rows stay in Today.
+    $where_clauses[] = "DATE(i.created_at) BETWEEN ? AND ?";
     $params[] = $start_date;
     $params[] = $end_date;
     $types .= "ss";

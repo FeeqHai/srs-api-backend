@@ -18,9 +18,10 @@ if (!$decoded) {
     echo json_encode(["status" => "error", "message" => "Invalid or expired token"]);
     exit();
 }
-if (!in_array(($decoded['role'] ?? ''), ['ketua_krt', 'super_admin'], true)) {
+$role = $decoded['role'] ?? '';
+if (!in_array($role, ['ketua_peronda', 'ketua_krt', 'super_admin'], true)) {
     http_response_code(403);
-    echo json_encode(["status" => "error", "message" => "Ketua KRT or Super Admin access required."]);
+    echo json_encode(["status" => "error", "message" => "Return acknowledgement access required."]);
     exit();
 }
 
@@ -38,12 +39,14 @@ if ($attendance_id === '') {
 
 $conn->begin_transaction();
 try {
-    $attendance_query = "SELECT return_requested_at, return_latitude, return_longitude
-        FROM attendance
-        WHERE id = ?
-          AND clock_out_time IS NULL
-          AND clock_in_time IS NOT NULL
-          AND return_status = 'pending_acknowledgement'
+    $attendance_query = "SELECT a.return_requested_at, a.return_latitude, a.return_longitude,
+                a.district_id, sc.squad_id
+        FROM attendance a
+        LEFT JOIN schedules sc ON sc.id = a.schedule_id
+        WHERE a.id = ?
+          AND a.clock_out_time IS NULL
+          AND a.clock_in_time IS NOT NULL
+          AND a.return_status = 'pending_acknowledgement'
         FOR UPDATE";
     $attendance_stmt = $conn->prepare($attendance_query);
     $attendance_stmt->bind_param("s", $attendance_id);
@@ -55,6 +58,29 @@ try {
     $attendance = $attendance_result->fetch_assoc();
     $attendance_stmt->close();
 
+    if ($role === 'ketua_peronda') {
+        if (empty($attendance['squad_id'])) {
+            throw new Exception('Pemulangan ini tiada skop skuad.');
+        }
+        $scope_stmt = $conn->prepare("SELECT 1 FROM squad_members WHERE squad_id = ? AND user_id = ? AND role = 'leader' LIMIT 1");
+        if (!$scope_stmt) {
+            throw new Exception('Gagal menyemak skop skuad.');
+        }
+        $attendance_squad_id = $attendance['squad_id'];
+        $actor_user_id = $decoded['user_id'];
+        $scope_stmt->bind_param("ss", $attendance_squad_id, $actor_user_id);
+        $scope_stmt->execute();
+        $allowed = $scope_stmt->get_result()->num_rows > 0;
+        $scope_stmt->close();
+        if (!$allowed) {
+            http_response_code(403);
+            throw new Exception('Anda hanya boleh mengesahkan pemulangan skuad anda.');
+        }
+    } elseif ($role === 'ketua_krt' && !empty($decoded['district_id']) && $attendance['district_id'] !== $decoded['district_id']) {
+        http_response_code(403);
+        throw new Exception('Anda hanya boleh mengesahkan pemulangan daerah anda.');
+    }
+
     $complete_query = "UPDATE attendance SET
         clock_out_time = COALESCE(clock_out_time, NOW()),
         clock_out_latitude = return_latitude,
@@ -64,7 +90,8 @@ try {
         return_acknowledged_by = ?
         WHERE id = ?";
     $complete_stmt = $conn->prepare($complete_query);
-    $complete_stmt->bind_param("ss", $decoded['user_id'], $attendance_id);
+    $actor_user_id = $decoded['user_id'];
+    $complete_stmt->bind_param("ss", $actor_user_id, $attendance_id);
     if (!$complete_stmt->execute()) {
         throw new Exception('Gagal melengkapkan shif.');
     }
@@ -82,7 +109,9 @@ try {
     echo json_encode(["status" => "success", "message" => "Pemulangan peronda telah disahkan."]);
 } catch (Exception $e) {
     $conn->rollback();
-    http_response_code(400);
+    if (http_response_code() < 400) {
+        http_response_code(400);
+    }
     echo json_encode(["status" => "error", "message" => $e->getMessage()]);
 }
 

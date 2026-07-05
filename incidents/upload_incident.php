@@ -114,7 +114,7 @@ function notify_sos_recipients($conn, $actor, $incident_id, $location_name) {
 }
 
 // 2. Payload Validation
-if (empty($id) || empty($reported_by) || empty($title) || empty($description) || empty($category) || empty($latitude) || empty($longitude)) {
+if ($id === '' || $reported_by === '' || $title === '' || $description === '' || $category === '' || $latitude === '' || $longitude === '') {
     echo json_encode(["status" => "error", "message" => "Ralat pelayan: Medan data tidak lengkap dihantar oleh aplikasi."]);
     exit();
 }

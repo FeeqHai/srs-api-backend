@@ -77,8 +77,63 @@ $squad_id = $user['squad_id']; // Might be null if they don't have a squad
 $stmt->close();
 
 // 2. Anti-cheat validation. Legacy four-part QR codes are treated as clock-in.
+$is_shift_qr = false;
 $qr_parts = explode('|', $checkpoint_id);
-if (count($qr_parts) === 5 && $qr_parts[0] === 'SRS_ATTENDANCE') {
+if (count($qr_parts) === 7 && $qr_parts[0] === 'SRS_SHIFT') {
+    $is_shift_qr = true;
+    $qr_mode = strtoupper($qr_parts[1]);
+    $qr_schedule_id = $qr_parts[2];
+    $qr_squad_id = $qr_parts[3];
+    $admin_lat = (float)$qr_parts[4];
+    $admin_lon = (float)$qr_parts[5];
+    $qr_time_str = $qr_parts[6];
+
+    if ($qr_mode !== 'IN') {
+        echo json_encode(["status" => "error", "message" => "Sila gunakan QR Clock In untuk memulakan shif."]);
+        exit();
+    }
+
+    if (!$squad_id || $squad_id !== $qr_squad_id) {
+        echo json_encode(["status" => "error", "message" => "QR ini hanya untuk ahli skuad yang ditetapkan."]);
+        exit();
+    }
+
+    $shift_stmt = $conn->prepare("SELECT sc.id, sc.state_id, sc.district_id, sc.zone_id
+                                  FROM schedules sc
+                                  WHERE sc.id = ? AND sc.squad_id = ?
+                                  LIMIT 1");
+    $shift_stmt->bind_param("ss", $qr_schedule_id, $qr_squad_id);
+    $shift_stmt->execute();
+    $shift = $shift_stmt->get_result()->fetch_assoc();
+    $shift_stmt->close();
+    if (!$shift) {
+        echo json_encode(["status" => "error", "message" => "Jadual rondaan QR tidak sah."]);
+        exit();
+    }
+
+    $leader_stmt = $conn->prepare("SELECT a.id
+                                   FROM attendance a
+                                   JOIN squad_members sm ON sm.user_id = a.user_id
+                                   WHERE a.schedule_id = ?
+                                     AND sm.squad_id = ?
+                                     AND sm.role = 'leader'
+                                     AND a.clock_out_time IS NULL
+                                     AND a.return_status = 'active'
+                                   LIMIT 1");
+    $leader_stmt->bind_param("ss", $qr_schedule_id, $qr_squad_id);
+    $leader_stmt->execute();
+    $leader_active = $leader_stmt->get_result()->num_rows > 0;
+    $leader_stmt->close();
+    if (!$leader_active) {
+        echo json_encode(["status" => "error", "message" => "Shif skuad belum dimulakan atau telah tamat."]);
+        exit();
+    }
+
+    $schedule_id = $shift['id'];
+    $state_id = $shift['state_id'] ?: $state_id;
+    $district_id = $shift['district_id'] ?: $district_id;
+    $zone_id = $shift['zone_id'] ?: $zone_id;
+} elseif (count($qr_parts) === 5 && $qr_parts[0] === 'SRS_ATTENDANCE') {
     $qr_mode = strtoupper($qr_parts[1]);
     $admin_lat = (float)$qr_parts[2];
     $admin_lon = (float)$qr_parts[3];
@@ -121,7 +176,7 @@ if ($distance > 100) {
     exit();
 }
 
-// A patroller cannot open another shift while one is still active or awaiting KRT acknowledgement.
+// A patroller cannot open another shift while one is still active or awaiting return acknowledgement.
 $active_query = "SELECT id
                  FROM attendance
                  WHERE user_id = ?
@@ -135,14 +190,16 @@ $active_stmt->bind_param("s", $user_id);
 $active_stmt->execute();
 if ($active_stmt->get_result()->num_rows > 0) {
     $active_stmt->close();
-    echo json_encode(["status" => "error", "message" => "Anda masih mempunyai shif aktif atau pemulangan menunggu pengesahan Ketua KRT."]);
+    echo json_encode(["status" => "error", "message" => "Anda masih mempunyai shif aktif atau pemulangan menunggu pengesahan Ketua Peronda atau Ketua KRT."]);
     exit();
 }
 $active_stmt->close();
 
-// 3. Find matching schedule for the squad today
-$schedule_id = null;
-if ($squad_id) {
+// 3. Find matching schedule for the squad today for legacy QR codes.
+if (!isset($schedule_id)) {
+    $schedule_id = null;
+}
+if (!$is_shift_qr && $squad_id) {
     // Check if there's a schedule for today
     $cur_date = date('Y-m-d');
     $sch_query = "SELECT id, state_id, district_id, zone_id FROM schedules WHERE squad_id = ? AND shift_date = ?";
